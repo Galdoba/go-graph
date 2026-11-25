@@ -22,8 +22,13 @@ The relation from an interface to a structure SHALL be answered from the method 
 
 #### Scenario: A method with a pointer receiver satisfies an interface
 
-- **WHEN** a structure with a pointer receiver method is answered as the target of a pair whose source is an interface whose method spec has the same name
-- **THEN** the outcome for that pair is that the connection exists, because the language counts a pointer receiver method in the method set of both the value and the pointer
+- **WHEN** the pair `Adder` and `Struct1` is answered for the test ground, where `Adder` records the method spec `Add5` and `Struct1` records the method `Add5`, written with a pointer receiver
+- **THEN** the outcome for that pair is that the connection exists, because the receiver is recorded as the named type the receiver is based on
+
+#### Scenario: A method reachable only through an embedding does not satisfy an interface
+
+- **WHEN** the pair `Reader` and `Outer` is answered for the test ground, where `Outer` records `Base` as an embedding attribute and records no method
+- **THEN** the outcome for that pair is that the connection does not exist, because the model records the embedding and not the method that is reachable only through it
 
 #### Scenario: Two methods with the same name and different signatures are different methods
 

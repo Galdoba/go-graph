@@ -64,11 +64,11 @@ SHALL have an empty receiver property.
   of that node, not as a node
 
 ### Requirement: Excluded entities are preserved as attributes
-Information about entities that are not nodes SHALL still be recorded as attributes of the node that
-owns them, so that later relations can be built from them. An attribute SHALL carry its kind, a name,
-a value and the reference to the node it points at, and the kinds the model records are field, method
-spec, embedding, alias and use. A reference SHALL point at a node, so a name that the model does not
-record as a node carries its referent as the attribute value instead of as a reference.
+Information about what the node owns SHALL still be recorded as attributes of the node, whether or not
+the entity is itself a node, so that later relations can be built from them. An attribute SHALL carry
+its kind, name, a value and the reference to the node it points at, and the kinds the model records are
+field, method spec, method, embedding, alias and use. A reference SHALL point at a node, so a name the
+model does not record as a node carries its referent as the attribute value instead.
 
 #### Scenario: Struct field
 - **WHEN** a package-level type declares a field
@@ -93,6 +93,10 @@ record as a node carries its referent as the attribute value instead of as a ref
 - **WHEN** a declaration refers to a package-level alias of an entity the model records as a node
 - **THEN** the use attribute references the node the alias resolves to, because the alias name itself
   is not a node
+
+#### Scenario: A method declared on a type is both a node and an attribute
+- **WHEN** a package-level type declares a method
+- **THEN** the method is recorded as a node and as a method attribute of the type node that owns it
 
 ### Requirement: Node identity is unique per declaration
 Every node SHALL have an identifier that is unique within the graph, derived from the entity itself
@@ -359,3 +363,27 @@ an alias.
 - **WHEN** the test ground declares `type Name string` and `type NameAlias = Name`
 - **THEN** the defined type produces one node with semantic type structure and the alias produces no
   node
+
+### Requirement: A node records the methods it owns
+A structure node SHALL record each method declared on it as an attribute of kind method, carrying the
+method name, its signature and a reference to the method node, so that a relation can read the method
+set from the structure alone. The signature SHALL be recorded in the form the model uses for a method
+spec, without the receiver, so that a signature on a method spec and a signature on a method attribute
+are comparable as recorded.
+
+#### Scenario: A structure carries its method set
+- **WHEN** a package-level type declares a method and the build records the type node
+- **THEN** the type node carries a method attribute naming the method, carrying its signature without
+  the receiver, and referencing the method node
+
+#### Scenario: The two sides of a comparison are recorded in the same form
+- **WHEN** an interface records the method spec `Read` and a structure records the method `Read`
+  declared on it with the same parameters and results
+- **THEN** the two attribute values are the same text, because both are read from the signature without
+  the receiver
+
+#### Scenario: A method set that reaches the type only through embedding is not recorded
+- **WHEN** a package-level type embeds another package-level type and a method is reachable only
+  through that embedding
+- **THEN** the outer type records the embedding as an attribute and no method attribute, because the
+  reachable method is produced by a lookup rather than by a declaration

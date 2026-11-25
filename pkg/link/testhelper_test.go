@@ -75,6 +75,42 @@ func stubMethod(pkg graph.PackageID, receiver, name string) *graph.Node {
 	}
 }
 
+// stubMethodSpec builds a method spec attribute in the form an interface records it, which is the
+// signature read without the receiver.
+func stubMethodSpec(name, signature string) graph.Attribute {
+	return graph.Attribute{Kind: graph.AttrMethodSpec, Name: name, Value: signature}
+}
+
+// stubMethodAttribute builds a method attribute in the form the build records it on the node that
+// owns it, pointing at the method node such a declaration also produces.
+func stubMethodAttribute(pkg graph.PackageID, receiver, name, signature string) graph.Attribute {
+	return graph.Attribute{
+		Kind: graph.AttrMethod, Name: name, Value: signature,
+		Ref: graph.ID{Package: pkg, Receiver: receiver, Name: name},
+	}
+}
+
+// stubInterface builds an interface record by hand carrying method specs, so a test can name what
+// the rule reads rather than rely on a loaded package.
+func stubInterface(pkg graph.PackageID, name string, st graph.SemanticType, specs ...graph.Attribute) *graph.Node {
+	id := graph.ID{Package: pkg, Name: name}
+	return &graph.Node{
+		ID: id, Kind: graph.KindType, Name: name, Package: pkg,
+		Parent: graph.ID{Package: pkg}, SemanticType: st, Attributes: specs,
+	}
+}
+
+// stubStructureMethods builds a structure record by hand carrying method attributes. The test ground
+// produces this shape from real declarations, so a hand-built record stands only for the outcome the
+// ground cannot produce.
+func stubStructureMethods(pkg graph.PackageID, name string, methods ...graph.Attribute) *graph.Node {
+	id := graph.ID{Package: pkg, Name: name}
+	return &graph.Node{
+		ID: id, Kind: graph.KindType, Name: name, Package: pkg,
+		Parent: graph.ID{Package: pkg}, SemanticType: graph.SemanticStructure, Attributes: methods,
+	}
+}
+
 // stubRule builds a rule by hand whose answer is fixed, so a test can name the order and the
 // outcome rather than the relation type itself.
 func stubRule(name string, answer func(name string, source, target *graph.Node) (bool, error)) Rule {

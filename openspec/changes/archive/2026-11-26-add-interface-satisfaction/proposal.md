@@ -30,4 +30,4 @@ None.
 - `pkg/link/testhelper_test.go`: a `stubInterface` helper for tests that need an interface record.
 - `pkg/link/link_test.go`: test cases for satisfied, not satisfied, signature mismatch and undecided.
 - `pkg/graph/build_test.go`: a test that a type node carries its declared method as an attribute.
-- `testdata/main.go`: no change needed — `Reader` with `Read() error`, `Base` with `Read() error` and `Thing` with `Read() int` already cover a match, a missing method and a signature mismatch.
+- `testdata/main.go`: gains `type Adder interface { Add5() int }`, so the pointer receiver case is answered on a real declaration instead of on a record built by hand. `Reader`, `Base`, `Thing`, `Outer` and `EmptyInterface` already cover a match, a missing method, a signature mismatch, a method reachable only through an embedding, and an interface with no method spec.

@@ -12,6 +12,7 @@ const (
 	AttrEmbeds                   // an embedded field, which points at the type node that owns the method
 	AttrAlias                    // a name used at a use-site that is not the declaration name
 	AttrUse                      // an entity a declaration refers to
+	AttrMethod                   // a method declared on a type node, recorded on the node that owns it
 )
 
 func (a AttributeKind) String() string {
@@ -26,6 +27,8 @@ func (a AttributeKind) String() string {
 		return "alias"
 	case AttrUse:
 		return "use"
+	case AttrMethod:
+		return "method"
 	default:
 		return "unknown"
 	}

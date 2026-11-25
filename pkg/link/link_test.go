@@ -68,7 +68,7 @@ func TestExistsThirdNamesTheLastRuleThatCouldNotAnswer(t *testing.T) {
 	if !errors.As(err, &u) {
 		t.Fatalf("the pair with an unresolved member answers %v without naming a rule", err)
 	}
-	if u.Rule != referentNode.Name {
+	if u.Rule != satisfiedInterface.Name {
 		t.Errorf("the answer names %q, want the last rule in the fixed order that could not answer", u.Rule)
 	}
 }
@@ -155,6 +155,114 @@ func TestTheReferentRuleAnswersItsGroundPair(t *testing.T) {
 	}
 }
 
+func TestTheSatisfactionRuleAnswersTheStructuresThatSatisfyTheInterface(t *testing.T) {
+	nodes := groundNodes(t)
+	reader, adder, base, struct1 := nodeByName(nodes, "Reader"), nodeByName(nodes, "Adder"), nodeByName(nodes, "Base"), nodeByName(nodes, "Struct1")
+	if reader == nil || adder == nil || base == nil || struct1 == nil {
+		t.Fatal("the test ground has no Reader, Adder, Base or Struct1 node")
+	}
+	for _, pair := range []struct{ source, target *graph.Node }{
+		{reader, base},
+		// Add5 is declared with a pointer receiver, so the method is read through the named type the
+		// receiver is based on.
+		{adder, struct1},
+	} {
+		exists, err := Exists(pair.source, pair.target)
+		if !exists || err != nil {
+			t.Errorf("%s to %s answers %v %v, want the connection to exist", pair.source.Name, pair.target.Name, exists, err)
+		}
+	}
+	// Only the outgoing direction carries the connection, so the structure does not satisfy the
+	// interface in the reverse pair.
+	if exists, err := Exists(base, reader); exists || err != nil {
+		t.Errorf("Base to Reader answers %v %v, want no connection", exists, err)
+	}
+}
+
+func TestTheSatisfactionRuleAnswersNoForAnIncompleteMethodSet(t *testing.T) {
+	nodes := groundNodes(t)
+	reader, struct1, thing, outer, base := nodeByName(nodes, "Reader"), nodeByName(nodes, "Struct1"), nodeByName(nodes, "Thing"), nodeByName(nodes, "Outer"), nodeByName(nodes, "Base")
+	if reader == nil || struct1 == nil || thing == nil || outer == nil || base == nil {
+		t.Fatal("the test ground has no Reader, Struct1, Thing, Outer or Base node")
+	}
+	// Struct1 owns no method named Read, Thing owns a method named Read with a different signature,
+	// and Outer reaches Read only through an embedding, which the model records as an embedding
+	// rather than as a method of Outer.
+	for _, target := range []*graph.Node{struct1, thing, outer} {
+		exists, err := Exists(reader, target)
+		if exists || err != nil {
+			t.Errorf("Reader to %s answers %v %v, want no connection with no rule named", target.Name, exists, err)
+		}
+	}
+	// An interface with no method spec states nothing to check, so the rule answers no rather than
+	// the third outcome.
+	empty := nodeByName(nodes, "EmptyInterface")
+	if empty == nil {
+		t.Fatal("the test ground has no EmptyInterface node")
+	}
+	if exists, err := Exists(empty, base); exists || err != nil {
+		t.Errorf("EmptyInterface to Base answers %v %v, want no connection", exists, err)
+	}
+}
+
+func TestMethodAttributesNameNoReferent(t *testing.T) {
+	nodes := groundNodes(t)
+	base := nodeByName(nodes, "Base")
+	baseRead := methodNode(nodes, "Base", "Read")
+	if base == nil || baseRead == nil {
+		t.Fatal("the test ground has no Base node or method Read on Base")
+	}
+	// The method is a node, so it is also recorded as an attribute of the node that owns it. Only the
+	// rule that reads a method by its parent answers this pair.
+	if !recordsMethod(base, graph.Attribute{Kind: graph.AttrMethod, Name: "Read", Value: "func() error"}) {
+		t.Fatalf("Base carries no method attribute for Read: %v", base.Attributes)
+	}
+	if yes, err := referentNode.Answer(referentNode.Name, base, baseRead); yes || err != nil {
+		t.Errorf("the referent rule answers a method attribute %v %v, want no", yes, err)
+	}
+	if yes, err := parentMethod.Answer(parentMethod.Name, base, baseRead); !yes || err != nil {
+		t.Errorf("the method rule answers Base to Read %v %v, want the connection to exist", yes, err)
+	}
+}
+
+func TestTheSatisfactionRuleNamesItselfForAnUndecidedRecord(t *testing.T) {
+	pkg := graph.PackageID{Name: "stub"}
+	// The test ground produces no unresolved record, so the third outcome is asserted on records
+	// built by hand, with the method set the rule reads.
+	unresolved := stubInterface(pkg, "StubInterface", graph.SemanticUnresolved, stubMethodSpec("Read", "func() error"))
+	satisfied := stubStructureMethods(pkg, "StubBase", stubMethodAttribute(pkg, "StubBase", "Read", "func() error"))
+	exists, err := consult(rules, unresolved, satisfied)
+	if exists {
+		t.Error("the pair with an unresolved member answers the connection as existing")
+	}
+	var u *UndecidedError
+	if !errors.As(err, &u) {
+		t.Fatalf("the pair with an unresolved member answers %v without naming a rule", err)
+	}
+	if u.Rule != satisfiedInterface.Name {
+		t.Errorf("the answer names %q, want the last rule in the fixed order that could not answer", u.Rule)
+	}
+}
+
+func TestHandBuiltRecordsCarryTheMethodSetTheRuleReads(t *testing.T) {
+	pkg := graph.PackageID{Name: "stub"}
+	spec := stubMethodSpec("Describe", "func() string")
+	reader := stubInterface(pkg, "StubReader", graph.SemanticInterface, spec)
+	base := stubStructureMethods(pkg, "StubBase", stubMethodAttribute(pkg, "StubBase", "Describe", "func() string"))
+	if len(reader.Attributes) != 1 || reader.Attributes[0].Kind != graph.AttrMethodSpec {
+		t.Fatalf("the interface record carries %v, want a method spec", reader.Attributes)
+	}
+	if len(base.Attributes) != 1 || base.Attributes[0].Kind != graph.AttrMethod {
+		t.Fatalf("the structure record carries %v, want a method attribute", base.Attributes)
+	}
+	if !recordsMethod(base, spec) {
+		t.Errorf("the structure does not read as carrying the method the spec states: %v", base.Attributes)
+	}
+	if yes, err := satisfiedInterface.Answer(satisfiedInterface.Name, reader, base); !yes || err != nil {
+		t.Errorf("the hand-built pair answers %v %v, want the connection to exist", yes, err)
+	}
+}
+
 func TestTheAliasReceiverIsReadThroughTheNodeItResolvesTo(t *testing.T) {
 	nodes := groundNodes(t)
 	struct1 := nodeByName(nodes, "Struct1")
@@ -178,7 +286,7 @@ func TestAnUncoveredRelationAnswersNo(t *testing.T) {
 	// Base is not a method of Struct1 and is not a referent of one of its attributes.
 	exists, err := Exists(struct1, base)
 	if exists || err != nil {
-		t.Errorf("a relation neither rule covers answers %v %v, want no connection with no rule named", exists, err)
+		t.Errorf("a relation no rule covers answers %v %v, want no connection with no rule named", exists, err)
 	}
 }
 
@@ -350,7 +458,7 @@ func TestTheGroundCoversEveryRule(t *testing.T) {
 	if got := Coverage(extra, nodes); len(got) != 1 || got[0] != "uncovered relation" {
 		t.Errorf("a rule with no pair in the ground reported %v, want only itself", got)
 	}
-	if len(rules) != 2 {
+	if len(rules) != 3 {
 		t.Errorf("adding a rule changed the rule set to %v", rules)
 	}
 }

@@ -27,6 +27,11 @@ type Reader interface {
 	Read() error
 }
 
+// An interface satisfied only through a pointer receiver.
+type Adder interface {
+	Add5() int
+}
+
 // Empty interface.
 type EmptyInterface interface{}
 

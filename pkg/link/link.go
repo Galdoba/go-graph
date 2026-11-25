@@ -44,9 +44,16 @@ var referentNode = Rule{
 	Answer: answerReferentNode,
 }
 
+// satisfiedInterface is the relation from an interface to the structure that records every method
+// the interface states.
+var satisfiedInterface = Rule{
+	Name:   "interface to a struct that satisfies it",
+	Answer: answerSatisfiedInterface,
+}
+
 // rules is the closed set of rules, in the order they are consulted. The set grows only by adding
 // a rule.
-var rules = []Rule{parentMethod, referentNode}
+var rules = []Rule{parentMethod, referentNode, satisfiedInterface}
 
 // Exists answers one pair against the rules in the order they are consulted, stopping at the first
 // rule that answers yes. When no rule answers yes, the outcome is that the connection does not
@@ -129,6 +136,11 @@ func answerReferentNode(name string, source, target *graph.Node) (bool, error) {
 		return false, nil
 	}
 	for _, a := range source.Attributes {
+		// A method attribute records the method set of the structure, not a node the structure
+		// refers to, so it names no relation of this kind.
+		if a.Kind == graph.AttrMethod {
+			continue
+		}
 		// An attribute whose reference is the record that owns it names no relation between two
 		// records. A reference with no name is not a referent node.
 		if a.Ref.Name != "" && a.Ref != source.ID && a.Ref == target.ID {
@@ -136,6 +148,39 @@ func answerReferentNode(name string, source, target *graph.Node) (bool, error) {
 		}
 	}
 	return false, nil
+}
+
+func answerSatisfiedInterface(name string, source, target *graph.Node) (bool, error) {
+	if source.SemanticType == graph.SemanticUnresolved || target.SemanticType == graph.SemanticUnresolved {
+		return false, &UndecidedError{Rule: name}
+	}
+	if source.SemanticType != graph.SemanticInterface || target.SemanticType != graph.SemanticStructure {
+		return false, nil
+	}
+	specs := 0
+	for _, a := range source.Attributes {
+		if a.Kind != graph.AttrMethodSpec {
+			continue
+		}
+		specs++
+		if !recordsMethod(target, a) {
+			return false, nil
+		}
+	}
+	// An interface with no method spec states nothing to check, so this rule answers no.
+	return specs > 0, nil
+}
+
+// recordsMethod reports whether the structure carries the method a method spec states. The method
+// is recorded on the node that owns it, so being recorded on the structure is the receiver, and the
+// signature is compared as recorded, without the receiver.
+func recordsMethod(target *graph.Node, spec graph.Attribute) bool {
+	for _, a := range target.Attributes {
+		if a.Kind == graph.AttrMethod && a.Name == spec.Name && a.Value == spec.Value {
+			return true
+		}
+	}
+	return false
 }
 
 // consult answers one pair against the rules in order. The consultation stops at the first yes.

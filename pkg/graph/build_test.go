@@ -123,6 +123,56 @@ func TestFieldsAndMethodSpecsAreAttributes(t *testing.T) {
 	}
 }
 
+// TestDeclaredMethodsAreAttributesOfTheOwner checks that a method declared on a package-level
+// type is recorded as an attribute of the node that owns it, in the same form a method spec is
+// recorded, so that a relation can read the method set from the record of the type alone.
+func TestDeclaredMethodsAreAttributesOfTheOwner(t *testing.T) {
+	nodes, _ := mustBuild(t, loadGround(t))
+
+	base := nodeByName(nodes, "Base")
+	if base == nil {
+		t.Fatalf("no node for Base, got %v", nodeNames(nodes))
+	}
+	var method *Node
+	for _, n := range nodes {
+		if n.Receiver == "Base" && n.Name == "Read" {
+			method = n
+			break
+		}
+	}
+	if method == nil {
+		t.Fatalf("no method node for Base.Read, got %v", nodeNames(nodes))
+	}
+
+	declared := attributeByName(base, "Read")
+	if declared == nil || declared.Kind != AttrMethod {
+		t.Fatalf("method Read is not an attribute of Base: %v", base.Attributes)
+	}
+	if declared.Kind.String() != "method" {
+		t.Errorf("the kind reads back as %q, want method", declared.Kind.String())
+	}
+	if declared.Value != "func() error" {
+		t.Errorf("method Read value = %q, want the signature without the receiver", declared.Value)
+	}
+	if declared.Ref != method.ID {
+		t.Errorf("method Read points at %v, want the method node %v", declared.Ref, method.ID)
+	}
+
+	reader := nodeByName(nodes, "Reader")
+	if reader == nil {
+		t.Fatalf("no node for Reader, got %v", nodeNames(nodes))
+	}
+	spec := attributeByName(reader, "Read")
+	if spec == nil || spec.Kind != AttrMethodSpec {
+		t.Fatalf("Read is not a method spec attribute of Reader: %v", reader.Attributes)
+	}
+	// A relation can compare the two sides only because both are recorded in the same form, with the
+	// signature read without the receiver.
+	if declared.Value != spec.Value {
+		t.Errorf("the method value %q is not the form a method spec records %q", declared.Value, spec.Value)
+	}
+}
+
 // TestAliasesAreAttributesAndImportsCreateNoNodes checks that an alias is recorded as an
 // attribute of the node it resolves to, and that neither the imported package nor a
 // predeclared identifier becomes a node.

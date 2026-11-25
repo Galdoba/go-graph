@@ -108,7 +108,7 @@ A rule SHALL be able to turn an outcome of does not exist into exists when a sem
 - **THEN** the outcome for that pair is that the connection does not exist, because the outcome is read from the source at that moment, while the growth rule limits only what a rule added later can change
 
 ### Requirement: The rule set covers the two relations decided here
-The rule set SHALL cover the relation from a structure to the method that records it as its parent, and the relation from a structure to a node one of its attributes refers to. No other relation type SHALL be answered by this change. A method whose receiver is written with an alias name SHALL be answered through the node the alias resolves to.
+The rule set SHALL cover the relation from a structure to the method that records it as its parent, the relation from a structure to a node one of its attributes refers to, and the relation from an interface to a structure that satisfies it. No other relation type SHALL be answered by this change. A method whose receiver is written with an alias name SHALL be answered through the node the alias resolves to.
 
 #### Scenario: A structure to the method that records it as its parent
 
@@ -120,6 +120,11 @@ The rule set SHALL cover the relation from a structure to the method that record
 - **WHEN** the pair `Struct1` and the node `Reader`, recorded as an embedded attribute of `Struct1`, is answered for the test ground
 - **THEN** the outcome is that the connection exists
 
+#### Scenario: An interface to a structure that satisfies it
+
+- **WHEN** the pair `Reader` and `Base` is answered for the test ground
+- **THEN** the outcome is that the connection exists, because `Base` owns the method `Read` that `Reader` records as a method spec
+
 #### Scenario: A method written with an alias as its receiver
 
 - **WHEN** the pair `Struct1` and the method `DescribeAlias`, written with the alias name `Mirror` as its receiver, is answered for the test ground
@@ -127,7 +132,7 @@ The rule set SHALL cover the relation from a structure to the method that record
 
 #### Scenario: A pair outside the covered relations
 
-- **WHEN** a pair is answered for a relation type that neither of the two rules covers
+- **WHEN** a pair is answered for a relation type that none of the three rules covers
 - **THEN** the outcome is that the connection does not exist, because no rule answers for that relation type
 
 ### Requirement: Every rule is exercised by the test ground
@@ -145,3 +150,41 @@ The set of pairs answered as existing for a source SHALL be identical for the sa
 
 - **WHEN** the same source is answered for the same set of targets with its attributes in a different order
 - **THEN** the list of pairs answered as existing is the same, because the outcome is read from the pair and not from the order of the attributes
+
+### Requirement: A connection from an interface reaches the struct that satisfies it
+The relation from an interface to a structure SHALL be answered from the method specs recorded as attributes of the interface and the methods recorded as attributes of the structure. A method spec SHALL match a method by its name, its receiver and its signature, not by its name alone, and a signature SHALL be read as recorded, without the receiver. A structure with no recorded method for one method spec of the interface SHALL NOT produce a connection.
+
+#### Scenario: A structure satisfies an interface
+
+- **WHEN** the pair `Reader` and `Base` is answered for the test ground, where `Reader` records the method spec `Read` and `Base` owns the method `Read` with receiver `Base`
+- **THEN** the outcome for that pair is that the connection exists
+
+#### Scenario: A structure does not satisfy an interface
+
+- **WHEN** the pair `Reader` and `Struct1` is answered for the test ground, where `Reader` records the method spec `Read` and `Struct1` owns no method named `Read`
+- **THEN** the outcome for that pair is that the connection does not exist
+
+#### Scenario: An interface has no method specs
+
+- **WHEN** the pair `EmptyInterface` and `Base` is answered for the test ground, where `EmptyInterface` records no method spec
+- **THEN** the outcome for that pair is that the connection does not exist, because a rule with no method specs to check answers no
+
+#### Scenario: A method with a pointer receiver satisfies an interface
+
+- **WHEN** the pair `Adder` and `Struct1` is answered for the test ground, where `Adder` records the method spec `Add5` and `Struct1` records the method `Add5`, written with a pointer receiver
+- **THEN** the outcome for that pair is that the connection exists, because the receiver is recorded as the named type the receiver is based on
+
+#### Scenario: A method reachable only through an embedding does not satisfy an interface
+
+- **WHEN** the pair `Reader` and `Outer` is answered for the test ground, where `Outer` records `Base` as an embedding attribute and records no method
+- **THEN** the outcome for that pair is that the connection does not exist, because the model records the embedding and not the method that is reachable only through it
+
+#### Scenario: Two methods with the same name and different signatures are different methods
+
+- **WHEN** the pair `Reader` and `Thing` is answered for the test ground, where `Reader` records the method spec `Read` with signature `func() error` and `Thing` records the method `Read` with signature `func() int`
+- **THEN** the outcome for that pair is that the connection does not exist, because the signatures are not the same
+
+#### Scenario: Method attributes are not read as referents
+
+- **WHEN** a structure that records its methods as attributes is answered for the relation from a structure to a node one of its attributes refers to
+- **THEN** that rule answers no for a method attribute, because a method attribute names the method set of the structure rather than a referent

@@ -202,7 +202,11 @@ func (b *builder) recordAttributes() {
 		for _, decl := range file.Decls {
 			switch d := decl.(type) {
 			case *ast.FuncDecl:
-				if node := b.nodeOf(b.pkg.TypesInfo.Defs[d.Name]); node != nil {
+				obj := b.pkg.TypesInfo.Defs[d.Name]
+				if node := b.nodeOf(obj); node != nil {
+					if fn, ok := obj.(*types.Func); ok {
+						b.recordMethod(node, fn)
+					}
 					b.recordUses(node, decl)
 				}
 			case *ast.GenDecl:
@@ -251,6 +255,33 @@ func (b *builder) recordAttributes() {
 			}
 		}
 	}
+}
+
+// recordMethod records a method declared on a package-level type as an attribute of the node
+// that owns it, so that a relation can read the method set from the record of the type alone.
+// The signature is written without the receiver, in the form a method spec is written, so that
+// the two sides of a satisfaction check are comparable as recorded.
+func (b *builder) recordMethod(node *Node, fn *types.Func) {
+	signature := fn.Signature()
+	recv := signature.Recv()
+	if recv == nil {
+		return
+	}
+	receiver, ok := baseNamed(recv.Type())
+	if !ok {
+		return
+	}
+	owner := b.nodeOf(receiver.Obj())
+	if owner == nil || owner.ID == node.ID {
+		return
+	}
+	plain := types.NewSignatureType(nil, nil, nil, signature.Params(), signature.Results(), signature.Variadic())
+	b.addAttribute(owner, Attribute{
+		Kind:  AttrMethod,
+		Name:  fn.Name(),
+		Value: types.TypeString(plain, b.qualifier),
+		Ref:   node.ID,
+	})
 }
 
 func (b *builder) recordTypeAttributes(node *Node, spec *ast.TypeSpec) {
