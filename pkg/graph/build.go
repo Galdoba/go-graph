@@ -3,7 +3,6 @@ package graph
 import (
 	"fmt"
 	"go/ast"
-	"go/token"
 	"go/types"
 	"sort"
 
@@ -567,14 +566,4 @@ func (b *builder) report(c Candidate) {
 	}
 	b.reported[key] = true
 	b.excluded = append(b.excluded, c)
-}
-
-func position(fset *token.FileSet, pos token.Pos) Position {
-	p := fset.Position(pos)
-	return Position{File: p.Filename, Line: p.Line, Column: p.Column}
-}
-
-func lineRange(fset *token.FileSet, node ast.Node) LineRange {
-	start, end := fset.Position(node.Pos()), fset.Position(node.End())
-	return LineRange{StartLine: start.Line, EndLine: end.Line}
 }

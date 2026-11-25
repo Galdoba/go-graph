@@ -1,6 +1,9 @@
 package graph
 
-import "go/ast"
+import (
+	"go/ast"
+	"go/token"
+)
 
 // Position is where a node is declared. It is provenance of the build that produced the
 // record rather than part of node identity, because any edit above a declaration moves
@@ -21,6 +24,16 @@ type Position struct {
 type LineRange struct {
 	StartLine int `json:"start_line"`
 	EndLine   int `json:"end_line"`
+}
+
+func position(fset *token.FileSet, pos token.Pos) Position {
+	p := fset.Position(pos)
+	return Position{File: p.Filename, Line: p.Line, Column: p.Column}
+}
+
+func lineRange(fset *token.FileSet, node ast.Node) LineRange {
+	start, end := fset.Position(node.Pos()), fset.Position(node.End())
+	return LineRange{StartLine: start.Line, EndLine: end.Line}
 }
 
 // Node is the record of one entity the enumeration accepted. The record carries enough
