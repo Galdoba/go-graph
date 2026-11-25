@@ -248,3 +248,55 @@ func TestEntryPointNameOutsidePackageMainIsAnOrdinaryFunction(t *testing.T) {
 		t.Error("main in package main reports entry_point=false, want true")
 	}
 }
+
+// TestReferencesNameOnlyANode checks that a use attribute carries its referent as the value when the
+// name it records is not a node, so a relation cannot read a field, a parameter, a local variable, a
+// type parameter or a method spec as a connection between two records.
+func TestReferencesNameOnlyANode(t *testing.T) {
+	nodes, _ := mustBuild(t, loadGround(t))
+
+	for _, want := range []struct{ owner, name, value string }{
+		{"NewStruct1", "Field1", "int"},
+		{"min", "a", "int"},
+		{"main", "local", "int"},
+		{"Pick", "T", "T"},
+		// The method is used through an interface value, so the name resolves to a method spec,
+		// which has no receiver to tell it apart from the package-level function of the same name.
+		{"describe", "Read", "func() error"},
+	} {
+		owner := mustNodeByName(t, nodes, want.owner)
+		use := attributeByName(owner, want.name)
+		if use == nil || use.Kind != AttrUse {
+			t.Fatalf("use %s is not recorded on %s: %v", want.name, want.owner, owner.Attributes)
+		}
+		if use.Value != want.value || use.Ref.Name != "" {
+			t.Errorf("use %s on %s = %v, want the value %q with no reference", want.name, want.owner, use, want.value)
+		}
+	}
+}
+
+// TestTheReceiverIsRecordedOnce checks that a method node carries the type it is declared on as the
+// receiver property rather than as a use attribute, so the relation to that node is read from the
+// property and not from a reference.
+func TestTheReceiverIsRecordedOnce(t *testing.T) {
+	nodes, _ := mustBuild(t, loadGround(t))
+
+	var method *Node
+	for _, n := range nodes {
+		if n.Receiver == "Base" && n.Name == "Read" {
+			method = n
+			break
+		}
+	}
+	if method == nil {
+		t.Fatalf("no method node for Base.Read, got %v", nodeNames(nodes))
+	}
+	if attributeByName(method, "Base") != nil {
+		t.Errorf("the method node records its receiver as a use: %v", method.Attributes)
+	}
+
+	base := mustNodeByName(t, nodes, "Base")
+	if method.Receiver != "Base" || method.Parent != base.ID {
+		t.Errorf("method Read carries receiver %q and parent %v, want the node of Base", method.Receiver, method.Parent)
+	}
+}

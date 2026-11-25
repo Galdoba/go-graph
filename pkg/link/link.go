@@ -51,9 +51,15 @@ var satisfiedInterface = Rule{
 	Answer: answerSatisfiedInterface,
 }
 
+// carriedReference is the relation from a node to the node a reference it carries names.
+var carriedReference = Rule{
+	Name:   "node to a node a reference it carries names",
+	Answer: answerCarriedReference,
+}
+
 // rules is the closed set of rules, in the order they are consulted. The set grows only by adding
 // a rule.
-var rules = []Rule{parentMethod, referentNode, satisfiedInterface}
+var rules = []Rule{parentMethod, referentNode, satisfiedInterface, carriedReference}
 
 // Exists answers one pair against the rules in the order they are consulted, stopping at the first
 // rule that answers yes. When no rule answers yes, the outcome is that the connection does not
@@ -181,6 +187,23 @@ func recordsMethod(target *graph.Node, spec graph.Attribute) bool {
 		}
 	}
 	return false
+}
+
+// answerCarriedReference reads the references the source carries, which is all a pair can hold for
+// this relation. Because it reads no semantic value, it cannot be unable to answer for an
+// unresolved record.
+func answerCarriedReference(name string, source, target *graph.Node) (bool, error) {
+	for _, a := range source.Attributes {
+		// Only a use records an entity a declaration refers to, so an alias or a method attribute
+		// names no connection of this kind. A reference with no name points at no record.
+		if a.Kind != graph.AttrUse || a.Ref.Name == "" {
+			continue
+		}
+		if a.Ref == target.ID {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // consult answers one pair against the rules in order. The consultation stops at the first yes.

@@ -102,15 +102,15 @@ func TestTheSamePairAnsweredTwiceGivesTheSameOutcome(t *testing.T) {
 	if (firstErr == nil) != (secondErr == nil) {
 		t.Errorf("the same pair answered twice names %v and %v, want one outcome", firstErr, secondErr)
 	}
-	// A variable as the source is not a relation the two rules cover, so they answer no rather than
-	// the third outcome.
-	zero := nodeByName(nodes, "zeroStruct")
-	if zero == nil {
-		t.Fatal("the test ground has no zeroStruct node")
+	// A variable is read by the rule that follows references, so a pair is answered no only when
+	// the source carries no reference to the target.
+	zero, base := nodeByName(nodes, "zeroStruct"), nodeByName(nodes, "Base")
+	if zero == nil || base == nil {
+		t.Fatal("the test ground has no zeroStruct or Base node")
 	}
-	exists, err := Exists(zero, struct1)
+	exists, err := Exists(zero, base)
 	if exists || err != nil {
-		t.Errorf("a pair whose source is a variable answers %v %v, want no connection with no rule named", exists, err)
+		t.Errorf("a variable that carries no reference to its pair answers %v %v, want no connection with no rule named", exists, err)
 	}
 }
 
@@ -152,6 +152,117 @@ func TestTheReferentRuleAnswersItsGroundPair(t *testing.T) {
 	exists, err := Exists(outer, base)
 	if !exists || err != nil {
 		t.Errorf("Outer to Base answers %v %v, want the connection to exist", exists, err)
+	}
+}
+
+// TestTheReferenceRuleAnswersItsGroundPairs checks the pairs the test ground answers for this
+// relation, which are read from the references a source carries whatever kind the source is.
+func TestTheReferenceRuleAnswersItsGroundPairs(t *testing.T) {
+	nodes := groundNodes(t)
+	pairs := []struct{ source, target string }{
+		{"describe", "Reader"},
+		{"NewStruct1", "Struct1"},
+		{"zeroStruct", "Struct1"},
+		{"main", "Five"},
+	}
+	for _, pair := range pairs {
+		source, target := nodeByName(nodes, pair.source), nodeByName(nodes, pair.target)
+		if source == nil || target == nil {
+			t.Fatalf("the test ground has no %s or %s node", pair.source, pair.target)
+		}
+		exists, err := Exists(source, target)
+		if !exists || err != nil {
+			t.Errorf("%s to %s answers %v %v, want the connection to exist with no rule named", pair.source, pair.target, exists, err)
+		}
+	}
+}
+
+// TestTheReferenceRuleReadsOnlyUses checks that a source whose uses name no node answers nothing, and
+// that the kinds recording a name rather than a referent keep answering nothing, so the exclusions of
+// the node model still hold for this relation.
+func TestTheReferenceRuleReadsOnlyUses(t *testing.T) {
+	nodes := groundNodes(t)
+	minFunc, struct1 := nodeByName(nodes, "min"), nodeByName(nodes, "Struct1")
+	if minFunc == nil || struct1 == nil {
+		t.Fatal("the test ground has no min or Struct1 node")
+	}
+	if use := attributeByName(minFunc, "a"); use == nil || use.Kind != graph.AttrUse || use.Ref.Name != "" {
+		t.Fatalf("the use of a parameter is not recorded as a value with no reference: %v", minFunc.Attributes)
+	}
+	if yes, err := carriedReference.Answer(carriedReference.Name, minFunc, struct1); yes || err != nil {
+		t.Errorf("a source whose uses name no node answers %v %v, want no connection with no rule named", yes, err)
+	}
+	// The body of describe uses Read through an interface value, so the name resolves to a method spec
+	// and carries no reference, which keeps the pair with the package-level function of the same name
+	// answered no.
+	describe, read := nodeByName(nodes, "describe"), nodeByName(nodes, "Read")
+	if describe == nil || read == nil {
+		t.Fatal("the test ground has no describe or Read node")
+	}
+	exists, err := Exists(describe, read)
+	if exists || err != nil {
+		t.Errorf("describe to the package-level Read answers %v %v, want no connection with no rule named", exists, err)
+	}
+	// The ground records the alias of a declared type on the node it resolves to, so a pair needs
+	// records built by hand to point an alias and a method attribute at a second member.
+	pkg := graph.PackageID{Name: "stub"}
+	target := stubNode(pkg, "Referent", graph.SemanticVariable)
+	source := stubNode(pkg, "Carrier", graph.SemanticVariable)
+	source.Attributes = []graph.Attribute{
+		{Kind: graph.AttrAlias, Name: "Mirror", Ref: target.ID},
+		{Kind: graph.AttrMethod, Name: "Read", Value: "func() error", Ref: target.ID},
+	}
+	if yes, err := carriedReference.Answer(carriedReference.Name, source, target); yes || err != nil {
+		t.Errorf("an alias and a method attribute answer %v %v for this relation, want no connection", yes, err)
+	}
+}
+
+// TestAMethodAnswersNothingForItsReceiver checks that the receiver is read from the receiver property
+// rather than from a reference, so a method answers nothing for the node its receiver names while the
+// reverse pair still carries the method.
+func TestAMethodAnswersNothingForItsReceiver(t *testing.T) {
+	nodes := groundNodes(t)
+	base, read := nodeByName(nodes, "Base"), methodNode(nodes, "Base", "Read")
+	if base == nil || read == nil {
+		t.Fatal("the test ground has no Base node or method Read on Base")
+	}
+	if attributeByName(read, "Base") != nil {
+		t.Fatalf("the method records its receiver as a use: %v", read.Attributes)
+	}
+	exists, err := Exists(read, base)
+	if exists || err != nil {
+		t.Errorf("the method to the type it is declared on answers %v %v, want no connection with no rule named", exists, err)
+	}
+	if exists, err := Exists(base, read); !exists || err != nil {
+		t.Errorf("the reverse pair answers %v %v, want the method carried by the rule that reads the parent", exists, err)
+	}
+}
+
+// TestTheReferenceRuleAnswersForAnUndecidedRecord checks that the rule answers for a pair whose member
+// reports unresolved without naming itself, because it reads no semantic value, and that the rule named
+// for an undecided pair is unchanged.
+func TestTheReferenceRuleAnswersForAnUndecidedRecord(t *testing.T) {
+	pkg := graph.PackageID{Name: "stub"}
+	target := stubNode(pkg, "Referent", graph.SemanticVariable)
+	source := stubNode(pkg, "Carrier", graph.SemanticUnresolved)
+	source.Attributes = []graph.Attribute{{Kind: graph.AttrUse, Name: "referent", Ref: target.ID}}
+	exists, err := consult(rules, source, target)
+	if !exists || err != nil {
+		t.Errorf("a pair with an unresolved member that carries a reference answers %v %v, want the connection to exist with no rule named", exists, err)
+	}
+	// The rule is never unable to answer, so the undecided outcome still names the last rule that
+	// reads a semantic value.
+	bare := stubNode(pkg, "Carrier", graph.SemanticUnresolved)
+	undecided, err := consult(rules, bare, target)
+	if undecided {
+		t.Error("a pair with an unresolved member answered the connection as existing")
+	}
+	var u *UndecidedError
+	if !errors.As(err, &u) {
+		t.Fatalf("the pair with an unresolved member answers %v without naming a rule", err)
+	}
+	if u.Rule != satisfiedInterface.Name {
+		t.Errorf("the answer names %q, want the last rule in the fixed order that could not answer", u.Rule)
 	}
 }
 
@@ -430,6 +541,63 @@ func TestTheAnsweredSetIsReproducibleFromTheRecordsAlone(t *testing.T) {
 	}
 }
 
+// TestTheGroundAnsweredSetIsAssertedAsAWhole pins the answered set the test ground produces, so the
+// growth of the rule that reads references is visible in the test rather than inferred rule by rule.
+func TestTheGroundAnsweredSetIsAssertedAsAWhole(t *testing.T) {
+	want := []string{
+		"Adder -> Struct1",
+		"Base -> Base.Describe",
+		"Base -> Base.Read",
+		"Box -> Box.PickVal",
+		"NewStruct1 -> Struct1",
+		"Option -> Struct1",
+		"Outer -> Base",
+		"Pick -> Box",
+		"Reader -> Base",
+		"Struct1 -> Reader",
+		"Struct1 -> Struct1.Add5",
+		"Struct1 -> Struct1.DescribeAlias",
+		"Thing -> Thing.Read",
+		"describe -> Reader",
+		"main -> Base",
+		"main -> Base.Read",
+		"main -> Box",
+		"main -> EmptyInterface",
+		"main -> Five",
+		"main -> LayoutMono",
+		"main -> LayoutStereo",
+		"main -> Name",
+		"main -> NewStruct1",
+		"main -> Option",
+		"main -> Outer",
+		"main -> Pick",
+		"main -> StringMap",
+		"main -> Struct1",
+		"main -> Struct1.Add5",
+		"main -> describe",
+		"main -> first",
+		"main -> min",
+		"main -> namedFunc",
+		"main -> second",
+		"main -> two",
+		"main -> zeroStruct",
+		"zeroStruct -> Struct1",
+	}
+	got := []string{}
+	for _, p := range Pairs(groundNodes(t)) {
+		got = append(got, pairName(p))
+	}
+	if len(got) != len(want) {
+		t.Fatalf("the test ground answered %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("the answered set is %v, want %v", got, want)
+			break
+		}
+	}
+}
+
 func TestARecordIsNotAPairWithItself(t *testing.T) {
 	nodes := groundNodes(t)
 	struct1 := nodeByName(nodes, "Struct1")
@@ -458,7 +626,7 @@ func TestTheGroundCoversEveryRule(t *testing.T) {
 	if got := Coverage(extra, nodes); len(got) != 1 || got[0] != "uncovered relation" {
 		t.Errorf("a rule with no pair in the ground reported %v, want only itself", got)
 	}
-	if len(rules) != 3 {
+	if len(rules) != 4 {
 		t.Errorf("adding a rule changed the rule set to %v", rules)
 	}
 }
@@ -470,4 +638,17 @@ func attributeByName(node *graph.Node, name string) *graph.Attribute {
 		}
 	}
 	return nil
+}
+
+// pairName writes one answered pair with the names the documentation uses, which names a method by its
+// receiver rather than by its name alone.
+func pairName(p Pair) string {
+	return pairPart(p.Source) + " -> " + pairPart(p.Target)
+}
+
+func pairPart(id graph.ID) string {
+	if id.Receiver != "" {
+		return id.Receiver + "." + id.Name
+	}
+	return id.Name
 }

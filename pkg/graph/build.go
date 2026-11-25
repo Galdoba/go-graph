@@ -330,7 +330,16 @@ func (b *builder) recordTypeAttributes(node *Node, spec *ast.TypeSpec) {
 }
 
 func (b *builder) recordUses(node *Node, decl ast.Node) {
+	// The name written as the receiver names no reference, because the receiver is recorded as the
+	// receiver property of the node.
+	var receiver ast.Node
+	if f, ok := decl.(*ast.FuncDecl); ok {
+		receiver = f.Recv
+	}
 	ast.Inspect(decl, func(n ast.Node) bool {
+		if receiver != nil && n == receiver {
+			return false
+		}
 		switch x := n.(type) {
 		case *ast.SelectorExpr:
 			qualifier, ok := x.X.(*ast.Ident)
@@ -484,6 +493,21 @@ func (b *builder) nodeOf(obj types.Object) *Node {
 	return b.nodes[NewID(b.id, obj)]
 }
 
+// namesNode reports whether an object is an entity the model records as a node in the graph that
+// owns it, which is what a reference may point at. An entity created inside a declaration, a field,
+// a type parameter or a method spec names no node, so its attribute carries the referent as a value.
+func (b *builder) namesNode(obj types.Object) bool {
+	if obj == nil || obj.Pkg() == nil {
+		return false
+	}
+	if obj.Pkg() == b.pkg.Types {
+		return b.nodeOf(obj) != nil
+	}
+	// A referent from another package belongs to that package graph, so its node-ness is read from
+	// the scope that declares it rather than from the nodes this build produced.
+	return obj.Pkg().Scope().Lookup(obj.Name()) == obj && Classify(obj.Pkg(), obj).Recorded
+}
+
 // referentObj builds the identifier of the node an attribute points at. An alias name names an
 // existing entity rather than creating one, so the reference points at the node the name resolves
 // to, and an alias that resolves to something that is not a node contributes no reference. A
@@ -500,6 +524,9 @@ func (b *builder) referentObj(obj types.Object) ID {
 			return ID{}
 		}
 		obj = named.Obj()
+	}
+	if !b.namesNode(obj) {
+		return ID{}
 	}
 	pkg := PackageID{PackagePath: obj.Pkg().Path(), Name: obj.Pkg().Name()}
 	if imported := b.pkg.Imports[obj.Pkg().Path()]; imported != nil && imported.Module != nil {

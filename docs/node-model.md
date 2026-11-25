@@ -105,7 +105,8 @@ alias owns no method set and no semantic type of its own.
 
 | Entity | Node? | Reason | Where it survives |
 | --- | --- | --- | --- |
-| Entity created inside a declaration body (local variable, parameter, receiver, anonymous function literal) | no | `created inside a declaration body` | attribute of the node that owns the declaration |
+| Entity created inside a declaration body (local variable, parameter, anonymous function literal) | no | `created inside a declaration body` | attribute of the node that owns the declaration |
+| The name written as a receiver | no | `created inside a declaration body` | the receiver property of the method node, which is also its parent, never a `use` attribute |
 | Struct field | no | `part of a declaration spec rather than a declaration` | `field` attribute of the type node, with the node its type refers to |
 | Interface method spec | no | `part of a declaration spec rather than a declaration` | `method spec` attribute of the interface type node |
 | Embedded field | no | `part of a declaration spec rather than a declaration` | `embeds` attribute pointing at the embedded type node |
@@ -128,6 +129,13 @@ node, in which case the value carries it, as the predeclared type `int` does for
 kinds the code records are `field`, `method spec`, `embeds`, `alias` and `use`, where `use` is an
 entity a declaration refers to.
 
+A reference names a node, so a use records one only when the name it holds is a node. The names a
+declaration creates around itself, a field, a parameter, a local variable and a type parameter, are
+not nodes, so their use carries the referent as the value with no reference. The same holds for a
+method used through an interface value, where the name resolves to a method spec: a method spec has
+no receiver, so it cannot be told apart from a package-level declaration of the same name and is
+never read as a node.
+
 The use-site is the node that owns the declaration the reference appears in. A reference
 through a name that is not the declaration name is recorded as an alias, not as a second
 node for the same entity. A declared alias is recorded on the node the alias resolves to; an
@@ -135,6 +143,10 @@ import name is recorded on the use-site node with a reference to the node the na
 which can be a node of another package graph. A use of an alias name references the node the alias
 resolves to, because the alias name is not a node, and an alias that resolves to something the model
 does not record as a node carries no reference.
+
+The name written as the receiver records no reference, because the receiver is recorded once, as the
+receiver property of the method node and as its parent. A method therefore never points at the type it
+is declared on through a use.
 
 ## Identity
 
