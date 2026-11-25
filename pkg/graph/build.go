@@ -114,7 +114,7 @@ func (b *builder) recordDecl(obj types.Object, decl ast.Decl, spec ast.Node) {
 func (b *builder) enumerateScope() {
 	scope := b.pkg.Types.Scope()
 	for _, name := range scope.Names() {
-		b.add(scope.Lookup(name), "")
+		b.add(scope.Lookup(name))
 	}
 }
 
@@ -133,7 +133,7 @@ func (b *builder) enumerateMethods() {
 			continue
 		}
 		for fn := range named.Methods() {
-			b.add(fn, "")
+			b.add(fn)
 		}
 		// A method set also holds methods that are reachable only through embedding.
 		// Such a method is produced by a lookup rather than by a declaration, so it is
@@ -185,7 +185,7 @@ func (b *builder) enumerateDefinitions() {
 			}
 			continue
 		}
-		b.add(e.obj, "")
+		b.add(e.obj)
 	}
 }
 
@@ -386,16 +386,13 @@ func (b *builder) recordUses(node *Node, decl ast.Node) {
 // add classifies one entity and either records it as a node or reports it as an excluded
 // candidate. An entity seen more than once is recorded once, so an entity referenced from
 // several files is one node with one declaration site.
-func (b *builder) add(obj types.Object, reason string) Candidate {
+func (b *builder) add(obj types.Object) Candidate {
 	if obj == nil || b.seen[obj] {
 		return Candidate{}
 	}
 	c := Classify(b.pkg.Types, obj)
 	if c.Reason == "" && b.decls[obj] == nil {
 		c.Reason = b.reasonForInnerEntity(obj)
-	}
-	if reason != "" && c.Reason == "" {
-		c.Reason = reason
 	}
 	// A reason is the whole point of a candidate: an entity that needs one is not a node.
 	if c.Reason != "" {
