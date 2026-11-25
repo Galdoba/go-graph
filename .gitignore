@@ -1,0 +1,25 @@
+# Agent and editor tooling
+.crush/
+.agents/
+
+# Go build output
+/bin/
+/dist/
+*.exe
+*.test
+*.out
+coverage.out
+coverage.html
+
+# Go workspace / vendored deps
+go.work
+go.work.sum
+vendor/
+
+# Environment and secrets
+.env
+.env.*
+
+# OS cruft
+.DS_Store
+Thumbs.db

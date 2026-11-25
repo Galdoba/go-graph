@@ -1,0 +1,137 @@
+# Spec Delta
+
+## Purpose
+
+Defines how a node record becomes a note file in the vault: where the file is placed, how it is named, which parts of the record the file carries, which files the rebuild action removes, and how a check invoked on demand confirms or refutes that a file matches the node it records.
+
+## ADDED Requirements
+
+### Requirement: A note file is written for each node the graph built
+The system SHALL write one note file for each node the graph produced for a package it loaded as a target. A node whose package the graph did not build SHALL have no file, because that node belongs to another package graph.
+
+#### Scenario: Node in a package the graph built
+- **WHEN** the graph produces a node for a package loaded as a target
+- **THEN** exactly one note file exists for that node
+
+#### Scenario: Reference points at a package the graph never built
+- **WHEN** a recorded reference resolves to a node of a package the graph never built, as the test ground reference from `main` to `strings.ToLower`
+- **THEN** no file is created for that node
+
+### Requirement: The location mirrors the package path in the record
+The path from the vault root to a note file SHALL be the package path the node records, so the location alone identifies the package the node belongs to.
+
+#### Scenario: Package under the vault root
+- **WHEN** a note is written for a node of `github.com/Galdoba/go-graph/testdata/second`
+- **THEN** it is placed under `<vault>/github.com/Galdoba/go-graph/testdata/second`
+
+#### Scenario: Directory name differs from the declared package name
+- **WHEN** a note is written for a node of the test ground package whose directory is `testdata` and whose declared name is `main`
+- **THEN** the location uses the recorded package path, and the declared name is read from the file
+
+### Requirement: The file name states the semantic type of the node
+The file name SHALL state the semantic type, the node name, and the receiver when the node has one, using a value from the closed semantic set, so a method and a package-level node in the same location stay distinct.
+
+#### Scenario: Package-level node
+- **WHEN** a note is written for the type node `Thing` of the second test ground, whose semantic type is structure
+- **THEN** the file is named `structure_Thing.md`
+
+#### Scenario: Method node keeps its receiver
+- **WHEN** a note is written for the method `Read` declared on `Thing`
+- **THEN** the file is named `method_Thing.Read.md` and stays distinct from a package-level node named `Read`
+
+#### Scenario: A node no rule classifies still has a name
+- **WHEN** a note is written for a node whose semantic type is `unresolved`
+- **THEN** the file name carries that value as its prefix, so every note name keeps the same form
+
+### Requirement: The frontmatter carries the identifier parts the location cannot carry
+The frontmatter SHALL carry the module part, the module version, the package path and the name the package declares, so the location together with the frontmatter gives the identifier of the node the note represents. The recorded package path is the claim a location is read against, so a check compares the folder a file sits in against the folder the path written inside the file maps to.
+
+#### Scenario: Identifier recovered from the file alone
+- **WHEN** a note is read from its location and its frontmatter without the build that produced it
+- **THEN** the identifier assembled from both is the identifier of the node that produced the file
+
+#### Scenario: Same node name in two packages
+- **WHEN** two nodes in two packages carry the same node name and so the same file name
+- **THEN** the two notes are still read as two nodes, because their identifiers differ
+
+#### Scenario: A value written in a note is read as a member of its closed set
+- **WHEN** the kind or the semantic type written in a note is read back
+- **THEN** it is read as a value of the closed set that wrote it, and a value outside the set is not read as one, so a note can be navigated back to the node it records without the build that produced it
+
+### Requirement: The frontmatter carries the code region the node was declared at
+The frontmatter SHALL carry the file, the line, the column and the declaration range recorded in the node, so a note names the code region it came from without the build that produced it.
+
+#### Scenario: Note names its declaration site
+- **WHEN** a note is read on a load that did not produce it
+- **THEN** the recorded region names the file and the lines the declaration spans
+
+### Requirement: The note states what its node is
+The note SHALL state the kind, the semantic type and the properties of the node it holds, in a form that can be read without the build that produced the file, because the file name states the semantic type only.
+
+#### Scenario: Generic entry point reads as such
+- **WHEN** a note is read for a node that reports `generic` and `entry_point` as properties
+- **THEN** both properties are stated in the file
+
+### Requirement: Every generated note carries an ownership marker
+The frontmatter of every note the graph writes SHALL carry a single boolean marker stating that the file was generated by the graph, so a rebuild can tell a file it owns from a file a person wrote. Only a marker that reads as true claims graph ownership.
+
+#### Scenario: File written by the graph
+- **WHEN** the graph writes a note for a node
+- **THEN** the frontmatter of that file carries the marker as true
+
+#### Scenario: File without the marker is never removed
+- **WHEN** a file in a package folder carries no marker
+- **THEN** the system does not remove it
+
+#### Scenario: A marker that does not claim graph ownership
+- **WHEN** a file in a package folder carries a marker whose value is not true
+- **THEN** the file is not treated as generated by the graph and is not removed
+
+#### Scenario: Frontmatter cannot be read
+- **WHEN** a file that should be a note cannot be read as frontmatter
+- **THEN** the system does not remove it and reports it as unreadable
+
+### Requirement: Generation is deterministic
+The output of the mapping SHALL be reproducible: the same node record produces the same location, the same file name and the same file content, including the order of the frontmatter fields.
+
+#### Scenario: Same node rendered twice
+- **WHEN** a node is rendered twice with no change to the source
+- **THEN** the two renderings are identical
+
+### Requirement: The rebuild action removes the files it owns before writing them
+The rebuild action SHALL remove the marked files in the folder of the package it builds before writing the files the mapping produces for the current node set, and SHALL state which files it removed.
+
+#### Scenario: Node no longer exists
+- **WHEN** a node present in an earlier build is absent from the current build
+- **THEN** the marked file at the location that node mapped to is removed
+
+#### Scenario: The name changes for a node that still exists
+- **WHEN** a node is reclassified between builds so the name the mapping produces for it differs from the name of the marked file that holds it
+- **THEN** the marked file is removed and the note is written under the name the current record produces, so no file is left for a node that no longer maps to that name
+
+#### Scenario: File outside the files the graph owns
+- **WHEN** a file sits in the package folder without the marker
+- **THEN** that file is left untouched
+
+### Requirement: A check invoked on demand confirms or refutes a note
+When invoked for one file, the system SHALL confirm or refute that the file matches the node it records, using the file and the code at that moment and without the build that produced the file. A file that cannot be read as frontmatter SHALL be reported as unreadable rather than as matching.
+
+#### Scenario: File matches the node it records
+- **WHEN** a check is invoked for a file whose location is the location its recorded package path maps to, whose recorded region still declares a node with the recorded name and kind, and whose name prefix is the semantic type it records
+- **THEN** the file is confirmed as matching that node
+
+#### Scenario: Recorded region no longer declares the node
+- **WHEN** the code region recorded in the frontmatter no longer declares a node with the recorded name and kind
+- **THEN** the check refutes the file and states that reason
+
+#### Scenario: Location does not match the recorded package path
+- **WHEN** a check is invoked for a file at a location the package path written inside it does not map to
+- **THEN** the check refutes the file and states that reason
+
+#### Scenario: Name prefix disagrees with the recorded semantic type
+- **WHEN** the prefix in the file name is not the semantic type the file records
+- **THEN** the check refutes the file and states that the name does not match the record the file carries
+
+#### Scenario: Check runs on a file it cannot read
+- **WHEN** a check is invoked for a file that cannot be read as frontmatter
+- **THEN** the check reports it as unreadable
