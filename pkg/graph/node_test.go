@@ -4,8 +4,6 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
-	"os"
-	"strings"
 	"testing"
 )
 
@@ -16,10 +14,7 @@ func TestNodeRecordReportsEveryField(t *testing.T) {
 	p := loadFixture(t, "basic")
 	nodes, _ := mustBuild(t, p)
 
-	n := nodeByName(nodes, "GlobalCounter")
-	if n == nil {
-		t.Fatalf("no node for the package-level declaration, got %v", nodeNames(nodes))
-	}
+	n := mustNodeByName(t, nodes, "GlobalCounter")
 
 	packageID := PackageID{ModulePath: p.Module.Path, ModuleVersion: p.Module.Version, PackagePath: p.PkgPath, Name: p.Name}
 	if n.Kind != KindVar {
@@ -146,19 +141,4 @@ func TestSemanticSetReportsUnresolvedForAnUnclassifiedObject(t *testing.T) {
 	if got := semanticTypeOf(label, kindOf(label), ""); got != SemanticUnresolved {
 		t.Errorf("semantic type = %v, want %v", got, SemanticUnresolved)
 	}
-}
-
-func declarationLine(t *testing.T, path, needle string) int {
-	t.Helper()
-	content, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read fixture: %v", err)
-	}
-	for i, line := range strings.Split(string(content), "\n") {
-		if line == needle {
-			return i + 1
-		}
-	}
-	t.Fatalf("fixture %s has no line %q", path, needle)
-	return 0
 }

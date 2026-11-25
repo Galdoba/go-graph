@@ -22,10 +22,7 @@ func TestPackageScopeProducesOneNodePerDeclaration(t *testing.T) {
 		"MaxRetries":    KindConst,
 	}
 	for name, kind := range want {
-		n := nodeByName(nodes, name)
-		if n == nil {
-			t.Fatalf("no node for declaration %s, got %v", name, nodeNames(nodes))
-		}
+		n := mustNodeByName(t, nodes, name)
 		if n.Kind != kind {
 			t.Errorf("%s: kind = %v, want %v", name, n.Kind, kind)
 		}
@@ -56,14 +53,8 @@ func TestMethodNodeCarriesReceiverAndParent(t *testing.T) {
 	p := loadFixture(t, "methods")
 	nodes, _ := mustBuild(t, p)
 
-	owner := nodeByName(nodes, "Struct1")
-	if owner == nil {
-		t.Fatalf("no node for Struct1, got %v", nodeNames(nodes))
-	}
-	method := nodeByName(nodes, "Read")
-	if method == nil {
-		t.Fatalf("no node for the method, got %v", nodeNames(nodes))
-	}
+	owner := mustNodeByName(t, nodes, "Struct1")
+	method := mustNodeByName(t, nodes, "Read")
 	if method.Receiver != "Struct1" {
 		t.Errorf("receiver = %q, want Struct1", method.Receiver)
 	}
@@ -71,10 +62,7 @@ func TestMethodNodeCarriesReceiverAndParent(t *testing.T) {
 		t.Errorf("parent = %v, want the type node %v", method.Parent, owner.ID)
 	}
 
-	other := nodeByName(nodes, "ReadLoud")
-	if other == nil {
-		t.Fatalf("no node for ReadLoud, got %v", nodeNames(nodes))
-	}
+	other := mustNodeByName(t, nodes, "ReadLoud")
 	if other.Receiver != "Struct2" {
 		t.Errorf("receiver = %q, want Struct2", other.Receiver)
 	}
@@ -90,10 +78,7 @@ func TestFieldsAndMethodSpecsAreAttributes(t *testing.T) {
 		t.Fatalf("nodes = %v, want only the package-level declarations", got)
 	}
 
-	counter := nodeByName(nodes, "Counter")
-	if counter == nil {
-		t.Fatalf("no node for Counter, got %v", nodeNames(nodes))
-	}
+	counter := mustNodeByName(t, nodes, "Counter")
 	value := attributeByName(counter, "Value")
 	if value == nil || value.Kind != AttrField {
 		t.Fatalf("field Value is not an attribute of Counter: %v", counter.Attributes)
@@ -110,10 +95,7 @@ func TestFieldsAndMethodSpecsAreAttributes(t *testing.T) {
 		t.Errorf("field Named points at %v, want the node it refers to %v", named.Ref, target.ID)
 	}
 
-	reader := nodeByName(nodes, "Reader")
-	if reader == nil {
-		t.Fatalf("no node for Reader, got %v", nodeNames(nodes))
-	}
+	reader := mustNodeByName(t, nodes, "Reader")
 	spec := attributeByName(reader, "Read")
 	if spec == nil || spec.Kind != AttrMethodSpec {
 		t.Fatalf("interface method spec is not an attribute of Reader: %v", reader.Attributes)
@@ -129,10 +111,7 @@ func TestFieldsAndMethodSpecsAreAttributes(t *testing.T) {
 func TestDeclaredMethodsAreAttributesOfTheOwner(t *testing.T) {
 	nodes, _ := mustBuild(t, loadGround(t))
 
-	base := nodeByName(nodes, "Base")
-	if base == nil {
-		t.Fatalf("no node for Base, got %v", nodeNames(nodes))
-	}
+	base := mustNodeByName(t, nodes, "Base")
 	var method *Node
 	for _, n := range nodes {
 		if n.Receiver == "Base" && n.Name == "Read" {
@@ -158,10 +137,7 @@ func TestDeclaredMethodsAreAttributesOfTheOwner(t *testing.T) {
 		t.Errorf("method Read points at %v, want the method node %v", declared.Ref, method.ID)
 	}
 
-	reader := nodeByName(nodes, "Reader")
-	if reader == nil {
-		t.Fatalf("no node for Reader, got %v", nodeNames(nodes))
-	}
+	reader := mustNodeByName(t, nodes, "Reader")
 	spec := attributeByName(reader, "Read")
 	if spec == nil || spec.Kind != AttrMethodSpec {
 		t.Fatalf("Read is not a method spec attribute of Reader: %v", reader.Attributes)
@@ -196,10 +172,7 @@ func TestAliasesAreAttributesAndImportsCreateNoNodes(t *testing.T) {
 	}
 
 	foreignNodes, _ := mustBuild(t, loadFixture(t, "foreign"))
-	target := nodeByName(foreignNodes, "Export")
-	if target == nil {
-		t.Fatalf("no node for the foreign declaration, got %v", nodeNames(foreignNodes))
-	}
+	target := mustNodeByName(t, foreignNodes, "Export")
 	if alias.Ref != target.ID {
 		t.Errorf("alias resolves to %v, want the foreign node %v", alias.Ref, target.ID)
 	}
@@ -238,10 +211,7 @@ func TestPackageDeclarationShadowsPredeclaredIdentifier(t *testing.T) {
 		}
 	}
 
-	use := nodeByName(nodes, "chosen")
-	if use == nil {
-		t.Fatalf("no node for the variable, got %v", nodeNames(nodes))
-	}
+	use := mustNodeByName(t, nodes, "chosen")
 	ref := attributeByName(use, "min")
 	if ref == nil || ref.Kind != AttrUse {
 		t.Fatalf("the reference to min is not recorded on the use-site: %v", use.Attributes)
@@ -261,10 +231,7 @@ func TestEntryPointNameOutsidePackageMainIsAnOrdinaryFunction(t *testing.T) {
 		"a.go": "package pkg1\n\nfunc main() {\n}\n",
 	}))
 
-	fn := nodeByName(ordinary, "main")
-	if fn == nil {
-		t.Fatalf("no node for main, got %v", nodeNames(ordinary))
-	}
+	fn := mustNodeByName(t, ordinary, "main")
 	if fn.Properties.EntryPoint {
 		t.Error("main in a package that is not main reports entry_point=true, want false")
 	}
@@ -276,20 +243,8 @@ func TestEntryPointNameOutsidePackageMainIsAnOrdinaryFunction(t *testing.T) {
 	entryPackage, _ := mustBuild(t, l.load("github.com/user/project1", "v1.0.0", "main", map[string]string{
 		"a.go": "package main\n\nfunc main() {\n}\n",
 	}))
-	entry := nodeByName(entryPackage, "main")
-	if entry == nil {
-		t.Fatalf("no node for main in package main, got %v", nodeNames(entryPackage))
-	}
+	entry := mustNodeByName(t, entryPackage, "main")
 	if !entry.Properties.EntryPoint {
 		t.Error("main in package main reports entry_point=false, want true")
 	}
-}
-
-func attributeByName(node *Node, name string) *Attribute {
-	for _, a := range node.Attributes {
-		if a.Name == name {
-			return &a
-		}
-	}
-	return nil
 }

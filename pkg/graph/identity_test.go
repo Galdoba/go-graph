@@ -194,11 +194,8 @@ func TestPromotedMethodIsExcluded(t *testing.T) {
 		t.Fatalf("the promoted method is not reported as excluded: %v", excluded)
 	}
 
-	outer := nodeByName(nodes, "Outer")
-	base := nodeByName(nodes, "Base")
-	if outer == nil || base == nil {
-		t.Fatalf("no node for the outer or embedded type, got %v", nodeNames(nodes))
-	}
+	outer := mustNodeByName(t, nodes, "Outer")
+	base := mustNodeByName(t, nodes, "Base")
 	embeds := attributeByName(outer, "Base")
 	if embeds == nil || embeds.Kind != AttrEmbeds {
 		t.Fatalf("the outer type does not record the embedding: %v", outer.Attributes)
@@ -214,10 +211,7 @@ func TestPromotedMethodIsExcluded(t *testing.T) {
 
 	// The call site uses the method through the embedding, so it resolves to the node of
 	// the type that declares it rather than to the type that is written in the code.
-	use := nodeByName(nodes, "Use")
-	if use == nil {
-		t.Fatalf("no node for the use-site, got %v", nodeNames(nodes))
-	}
+	use := mustNodeByName(t, nodes, "Use")
 	call := attributeByName(use, "Read")
 	if call == nil || call.Kind != AttrUse {
 		t.Fatalf("the call through the embedding is not recorded on the use-site: %v", use.Attributes)
@@ -305,10 +299,7 @@ func TestNodeResolvesBackToItsDeclaration(t *testing.T) {
 	if first.Range == second.Range {
 		t.Errorf("two variables inside one var block share the range %v", first.Range)
 	}
-	counter := nodeByName(nodes, "Counter")
-	if counter == nil {
-		t.Fatalf("no node for Counter, got %v", nodeNames(nodes))
-	}
+	counter := mustNodeByName(t, nodes, "Counter")
 	if counter.Range.StartLine >= counter.Range.EndLine {
 		t.Errorf("range of a type declaration covers only its name: %v", counter.Range)
 	}

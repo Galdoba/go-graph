@@ -6,10 +6,12 @@ import (
 	"go/parser"
 	"go/token"
 	"go/types"
+	"os"
 	"path/filepath"
 	"runtime"
 	"sort"
 	"strconv"
+	"strings"
 	"testing"
 
 	"golang.org/x/tools/go/packages"
@@ -148,6 +150,48 @@ func nodeByID(nodes []*Node, id string) *Node {
 		}
 	}
 	return nil
+}
+
+func mustNodeByName(t *testing.T, nodes []*Node, name string) *Node {
+	t.Helper()
+	n := nodeByName(nodes, name)
+	if n == nil {
+		t.Fatalf("no node for %s, got %v", name, nodeNames(nodes))
+	}
+	return n
+}
+
+func mustNodeByID(t *testing.T, nodes []*Node, id string) *Node {
+	t.Helper()
+	n := nodeByID(nodes, id)
+	if n == nil {
+		t.Fatalf("no node for %s, got %v", id, nodeNames(nodes))
+	}
+	return n
+}
+
+func attributeByName(node *Node, name string) *Attribute {
+	for _, a := range node.Attributes {
+		if a.Name == name {
+			return &a
+		}
+	}
+	return nil
+}
+
+func declarationLine(t *testing.T, path, needle string) int {
+	t.Helper()
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+	for i, line := range strings.Split(string(content), "\n") {
+		if line == needle {
+			return i + 1
+		}
+	}
+	t.Fatalf("fixture %s has no line %q", path, needle)
+	return 0
 }
 
 // loadGround loads the test ground at the repository root, which declares one entity of every

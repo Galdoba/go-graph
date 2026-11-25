@@ -84,19 +84,13 @@ func TestTestgroundAliasProducesNoNode(t *testing.T) {
 		t.Error("alias NameAlias produces a node, want no node")
 	}
 
-	mirrorNode := nodeByName(nodes, "Struct1")
-	if mirrorNode == nil {
-		t.Fatal("no node for Struct1")
-	}
+	mirrorNode := mustNodeByName(t, nodes, "Struct1")
 	alias := attributeByName(mirrorNode, "Mirror")
 	if alias == nil || alias.Kind != AttrAlias {
 		t.Errorf("alias Mirror is not an attribute of Struct1: %v", mirrorNode.Attributes)
 	}
 
-	nameAliasNode := nodeByName(nodes, "Name")
-	if nameAliasNode == nil {
-		t.Fatal("no node for Name")
-	}
+	nameAliasNode := mustNodeByName(t, nodes, "Name")
 	nameAlias := attributeByName(nameAliasNode, "NameAlias")
 	if nameAlias == nil || nameAlias.Kind != AttrAlias {
 		t.Errorf("alias NameAlias is not an attribute of Name: %v", nameAliasNode.Attributes)
@@ -111,10 +105,7 @@ func TestTestgroundAliasProducesNoNode(t *testing.T) {
 	if !hasCandidate(excluded, "Counter", ReasonAliasIsName) {
 		t.Errorf("alias Counter is not reported as excluded: %v", excluded)
 	}
-	owner := nodeByName(nodes, "main")
-	if owner == nil {
-		t.Fatal("no node for main")
-	}
+	owner := mustNodeByName(t, nodes, "main")
 	use := attributeByName(owner, "Counter")
 	if use == nil {
 		t.Fatalf("the use of Counter is not recorded on the node that owns the declaration: %v", owner.Attributes)
@@ -126,10 +117,7 @@ func TestTestgroundAliasProducesNoNode(t *testing.T) {
 	// A use of an alias name references the node the alias resolves to, because an alias is not a
 	// node the reference can point at.
 	for _, pair := range []struct{ alias, resolved string }{{"Mirror", "Struct1"}, {"NameAlias", "Name"}} {
-		resolved := nodeByName(nodes, pair.resolved)
-		if resolved == nil {
-			t.Fatalf("no node for %s", pair.resolved)
-		}
+		resolved := mustNodeByName(t, nodes, pair.resolved)
 		ref := attributeByName(owner, pair.alias)
 		if ref == nil || ref.Kind != AttrUse {
 			t.Errorf("the use of %s is not recorded on main: %v", pair.alias, owner.Attributes)
@@ -146,10 +134,7 @@ func TestTestgroundAliasProducesNoNode(t *testing.T) {
 func TestTestgroundGenericProperties(t *testing.T) {
 	nodes, _ := mustBuild(t, loadGround(t))
 
-	box := nodeByName(nodes, "Box")
-	if box == nil {
-		t.Fatal("no node for Box")
-	}
+	box := mustNodeByName(t, nodes, "Box")
 	if !box.Properties.Generic {
 		t.Error("Box has generic=false, want true")
 	}
@@ -157,10 +142,7 @@ func TestTestgroundGenericProperties(t *testing.T) {
 		t.Errorf("Box semantic type = %v, want %v", box.SemanticType, SemanticStructure)
 	}
 
-	pick := nodeByName(nodes, "Pick")
-	if pick == nil {
-		t.Fatal("no node for Pick")
-	}
+	pick := mustNodeByName(t, nodes, "Pick")
 	if pick.Receiver != "" {
 		t.Fatalf("Pick receiver = %q, want empty for package-level function", pick.Receiver)
 	}
@@ -171,10 +153,7 @@ func TestTestgroundGenericProperties(t *testing.T) {
 		t.Errorf("Pick semantic type = %v, want %v", pick.SemanticType, SemanticFunction)
 	}
 
-	mainFn := nodeByName(nodes, "main")
-	if mainFn == nil {
-		t.Fatal("no node for main")
-	}
+	mainFn := mustNodeByName(t, nodes, "main")
 	if !mainFn.Properties.EntryPoint {
 		t.Error("main has entry_point=false, want true")
 	}
@@ -182,10 +161,7 @@ func TestTestgroundGenericProperties(t *testing.T) {
 		t.Errorf("main semantic type = %v, want %v", mainFn.SemanticType, SemanticFunction)
 	}
 
-	initFn := nodeByName(nodes, "init")
-	if initFn == nil {
-		t.Fatal("no node for init")
-	}
+	initFn := mustNodeByName(t, nodes, "init")
 	if !initFn.Properties.EntryPoint {
 		t.Error("init has entry_point=false, want true")
 	}
@@ -200,10 +176,7 @@ func TestTestgroundMethodWithTypeParams(t *testing.T) {
 	nodes, _ := mustBuild(t, loadGround(t))
 
 	// The package-level Pick function has type parameters.
-	pick := nodeByName(nodes, "Pick")
-	if pick == nil {
-		t.Fatal("no node for Pick")
-	}
+	pick := mustNodeByName(t, nodes, "Pick")
 	if pick.Receiver != "" {
 		t.Fatalf("Pick receiver = %q, want empty for package-level function", pick.Receiver)
 	}
@@ -215,10 +188,7 @@ func TestTestgroundMethodWithTypeParams(t *testing.T) {
 	}
 
 	// The method PickVal on Box has its own type parameters.
-	pickVal := nodeByID(nodes, "github.com~Galdoba~go-graph~testdata~main.Box.PickVal")
-	if pickVal == nil {
-		t.Fatalf("no node for Box/PickVal, got %v", nodeNames(nodes))
-	}
+	pickVal := mustNodeByID(t, nodes, "github.com~Galdoba~go-graph~testdata~main.Box.PickVal")
 	if !pickVal.Properties.Generic {
 		t.Error("Box/PickVal has generic=false, want true")
 	}
@@ -233,14 +203,8 @@ func TestTestgroundMethodOnAlias(t *testing.T) {
 	nodes, _ := mustBuild(t, loadGround(t))
 
 	// The method DescribeAlias should be owned by Struct1, not Mirror.
-	struct1 := nodeByName(nodes, "Struct1")
-	if struct1 == nil {
-		t.Fatal("no node for Struct1")
-	}
-	aliasMethod := nodeByID(nodes, "github.com~Galdoba~go-graph~testdata~main.Struct1.DescribeAlias")
-	if aliasMethod == nil {
-		t.Fatalf("no node for Struct1/DescribeAlias, got %v", nodeNames(nodes))
-	}
+	mustNodeByName(t, nodes, "Struct1")
+	aliasMethod := mustNodeByID(t, nodes, "github.com~Galdoba~go-graph~testdata~main.Struct1.DescribeAlias")
 	if aliasMethod.Receiver != "Struct1" {
 		t.Errorf("DescribeAlias receiver = %q, want Struct1", aliasMethod.Receiver)
 	}
@@ -263,10 +227,7 @@ func TestSecondGroundPackageStatesNameAndLastSegment(t *testing.T) {
 		t.Fatal("the second ground package produced no node")
 	}
 
-	read := nodeByName(nodes, "Read")
-	if read == nil {
-		t.Fatalf("no node for Read, got %v", nodeNames(nodes))
-	}
+	read := mustNodeByName(t, nodes, "Read")
 	if read.ID.Package.Name != "second" {
 		t.Errorf("record name = %q, want second", read.ID.Package.Name)
 	}
