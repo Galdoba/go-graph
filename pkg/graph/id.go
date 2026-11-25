@@ -124,15 +124,7 @@ func receiverName(recv *types.Var) string {
 	if recv == nil {
 		return ""
 	}
-	t := recv.Type()
-	if p, ok := t.(*types.Pointer); ok {
-		t = p.Elem()
-	}
-	// Resolve aliases to their target named type.
-	if _, ok := t.(*types.Alias); ok {
-		t = types.Unalias(t)
-	}
-	named, ok := t.(*types.Named)
+	named, ok := baseNamed(recv.Type())
 	if !ok {
 		return ""
 	}
