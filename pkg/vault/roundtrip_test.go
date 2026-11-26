@@ -21,7 +21,7 @@ func TestRoundTripInFileForm(t *testing.T) {
 		nodes := loadGround(t, pattern)
 		root := t.TempDir()
 
-		if _, err := Rebuild(root, nodes[0].Package, nodes); err != nil {
+		if _, err := Rebuild(root, []graph.PackageID{nodes[0].Package}, nodes); err != nil {
 			t.Fatalf("rebuild %s: %v", pattern, err)
 		}
 

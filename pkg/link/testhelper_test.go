@@ -64,6 +64,30 @@ func nodeByName(nodes []*graph.Node, name string) *graph.Node {
 	return nil
 }
 
+// runPackages loads several packages as the targets of one run, which is the situation the collection of
+// the run covers.
+func runPackages(t *testing.T, patterns ...string) []*packages.Package {
+	t.Helper()
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("cannot locate the repository root")
+	}
+	root := filepath.Join(filepath.Dir(file), "..", "..")
+	pkgs, err := packages.Load(&packages.Config{Mode: graph.LoadMode, Dir: root}, patterns...)
+	if err != nil {
+		t.Fatalf("load the packages of the run: %v", err)
+	}
+	if len(pkgs) != len(patterns) {
+		t.Fatalf("the run read %d packages for %v, want one for each pattern", len(pkgs), patterns)
+	}
+	for _, p := range pkgs {
+		if len(p.Errors) > 0 {
+			t.Fatalf("the run read %s with errors: %v", p.PkgPath, p.Errors)
+		}
+	}
+	return pkgs
+}
+
 // stubNode builds a structure record by hand, so a test can name what the rule reads rather than
 // rely on a loaded package.
 func stubNode(pkg graph.PackageID, name string, st graph.SemanticType, refs ...graph.ID) *graph.Node {

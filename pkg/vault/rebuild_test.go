@@ -17,7 +17,7 @@ func TestRebuildRemovesTheFilesItOwns(t *testing.T) {
 	pkg := second[0].Package
 	folder := Folder(root, pkg)
 
-	if _, err := Rebuild(root, pkg, second); err != nil {
+	if _, err := Rebuild(root, []graph.PackageID{pkg}, second); err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
 
@@ -27,7 +27,7 @@ func TestRebuildRemovesTheFilesItOwns(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 
-	report, err := Rebuild(root, pkg, second)
+	report, err := Rebuild(root, []graph.PackageID{pkg}, second)
 	if err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
@@ -64,7 +64,7 @@ func TestRebuildLeavesAMarkerThatDoesNotClaimOwnership(t *testing.T) {
 	pkg := second[0].Package
 	folder := Folder(root, pkg)
 
-	if _, err := Rebuild(root, pkg, second); err != nil {
+	if _, err := Rebuild(root, []graph.PackageID{pkg}, second); err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
 
@@ -74,7 +74,7 @@ func TestRebuildLeavesAMarkerThatDoesNotClaimOwnership(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 
-	report, err := Rebuild(root, pkg, second)
+	report, err := Rebuild(root, []graph.PackageID{pkg}, second)
 	if err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
@@ -96,12 +96,12 @@ func TestRebuildStatesWhatItRemoved(t *testing.T) {
 	second := loadGround(t, "./testdata/second")
 	pkg := second[0].Package
 
-	if _, err := Rebuild(root, pkg, second); err != nil {
+	if _, err := Rebuild(root, []graph.PackageID{pkg}, second); err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
 
 	gone := second[len(second)-1]
-	report, err := Rebuild(root, pkg, second[:len(second)-1])
+	report, err := Rebuild(root, []graph.PackageID{pkg}, second[:len(second)-1])
 	if err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
@@ -143,7 +143,7 @@ func TestRebuildWritesTheSameFileWhenOnlyTheClassificationChanges(t *testing.T) 
 		t.Fatalf("Thing reads as %s, want the semantic type a struct body gives", thing.SemanticType)
 	}
 
-	if _, err := Rebuild(root, thing.Package, before); err != nil {
+	if _, err := Rebuild(root, []graph.PackageID{thing.Package}, before); err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
 	file := NotePath(root, thing)
@@ -159,7 +159,7 @@ func TestRebuildWritesTheSameFileWhenOnlyTheClassificationChanges(t *testing.T) 
 			reclassified.SemanticType)
 	}
 
-	report, err := Rebuild(root, reclassified.Package, after)
+	report, err := Rebuild(root, []graph.PackageID{reclassified.Package}, after)
 	if err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
@@ -195,7 +195,7 @@ func TestRebuildWritesTheNameTheCurrentSourceProduces(t *testing.T) {
 	if oldNode == nil {
 		t.Fatalf("the ground produced no node named New: %v", nodeNames(before))
 	}
-	if _, err := Rebuild(root, oldNode.Package, before); err != nil {
+	if _, err := Rebuild(root, []graph.PackageID{oldNode.Package}, before); err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
 	old := NotePath(root, oldNode)
@@ -207,7 +207,7 @@ func TestRebuildWritesTheNameTheCurrentSourceProduces(t *testing.T) {
 		t.Fatalf("the rewritten ground produced no node named NewThing: %v", nodeNames(after))
 	}
 
-	report, err := Rebuild(root, renamed.Package, after)
+	report, err := Rebuild(root, []graph.PackageID{renamed.Package}, after)
 	if err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
@@ -263,7 +263,7 @@ func TestRebuildReplacesAFileNamedInTheEarlierForm(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 
-	report, err := Rebuild(root, pkg, second)
+	report, err := Rebuild(root, []graph.PackageID{pkg}, second)
 	if err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
@@ -315,12 +315,12 @@ func TestRebuildRemovesOnlyTheFilesItsOwnRecordsMapToInAForeignFolder(t *testing
 
 	// The first run writes the file of the record it carries, which is the file the second run has to
 	// leave in place.
-	if _, err := Rebuild(root, pkg, append(append([]*graph.Node{}, built...), kept)); err != nil {
+	if _, err := Rebuild(root, []graph.PackageID{pkg}, append(append([]*graph.Node{}, built...), kept)); err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
 
 	// In the foreign folder the second run has no file of its own yet, so it judges nothing there.
-	secondRun, err := Rebuild(root, pkg, append(append([]*graph.Node{}, built...), other))
+	secondRun, err := Rebuild(root, []graph.PackageID{pkg}, append(append([]*graph.Node{}, built...), other))
 	if err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
@@ -337,7 +337,7 @@ func TestRebuildRemovesOnlyTheFilesItsOwnRecordsMapToInAForeignFolder(t *testing
 	// The second run now owns the file it wrote there, so it is the only foreign file it removes.
 	want := append([]string{NotePath(root, other)}, own...)
 	slices.Sort(want)
-	secondRun, err = Rebuild(root, pkg, append(append([]*graph.Node{}, built...), other))
+	secondRun, err = Rebuild(root, []graph.PackageID{pkg}, append(append([]*graph.Node{}, built...), other))
 	if err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
@@ -353,7 +353,7 @@ func TestRebuildRemovesOnlyTheFilesItsOwnRecordsMapToInAForeignFolder(t *testing
 
 	// The same assertion mirrored: the run that produced the first file keeps the file the other run
 	// wrote, so ownership in a foreign folder follows the records of the run rather than the folder.
-	firstRun, err := Rebuild(root, pkg, append(append([]*graph.Node{}, built...), kept))
+	firstRun, err := Rebuild(root, []graph.PackageID{pkg}, append(append([]*graph.Node{}, built...), kept))
 	if err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
@@ -367,5 +367,80 @@ func TestRebuildRemovesOnlyTheFilesItsOwnRecordsMapToInAForeignFolder(t *testing
 	}
 	if _, err := os.Stat(NotePath(root, other)); err != nil {
 		t.Errorf("the file the other run wrote in the foreign folder did not survive: %v", err)
+	}
+}
+
+// TestRebuildOwnsEveryMarkedFileInTheFoldersOfThePackagesTheRunRead checks a run that read two
+// packages as targets: it removes every marked file in the folder of each of those packages,
+// including a file no record of the run maps to, while in a folder that only records produced from a
+// reference map to it removes only the files this run wrote there. The two fixtures name each other
+// only through a reference, so the collection of the run holds the records of both packages and one
+// record of a package the run never read.
+func TestRebuildOwnsEveryMarkedFileInTheFoldersOfThePackagesTheRunRead(t *testing.T) {
+	root := t.TempDir()
+	targets, records := loadRun(t, "./pkg/graph/testdata/fixtures/use", "./pkg/graph/testdata/fixtures/shape")
+	if len(targets) != 2 {
+		t.Fatalf("the run read %d packages as targets, want two", len(targets))
+	}
+
+	owned := make(map[string]bool, len(targets))
+	for _, pkg := range targets {
+		owned[Folder(root, pkg)] = true
+	}
+
+	var foreign *graph.Node
+	for _, record := range records {
+		if !owned[Folder(root, record.Package)] {
+			foreign = record
+			break
+		}
+	}
+	if foreign == nil {
+		t.Fatalf("the collection maps to no folder the run read as a target: %v", nodeNames(records))
+	}
+
+	if _, err := Rebuild(root, targets, records); err != nil {
+		t.Fatalf("rebuild: %v", err)
+	}
+
+	marker := "---\ngenerated: true\n---\n\nwritten by another run\n"
+	inOwned := path.Join(Folder(root, targets[0]), "gone record.md")
+	inForeign := path.Join(Folder(root, foreign.Package), "other record.md")
+	for _, file := range []string{inOwned, inForeign} {
+		if err := os.MkdirAll(path.Dir(file), 0o755); err != nil {
+			t.Fatalf("create folder for %s: %v", file, err)
+		}
+		if err := os.WriteFile(file, []byte(marker), 0o644); err != nil {
+			t.Fatalf("write %s: %v", file, err)
+		}
+	}
+
+	report, err := Rebuild(root, targets, records)
+	if err != nil {
+		t.Fatalf("rebuild: %v", err)
+	}
+
+	want := make([]string, 0, len(records)+1)
+	for _, record := range records {
+		want = append(want, NotePath(root, record))
+	}
+	want = append(want, inOwned)
+	slices.Sort(want)
+	got := append([]string{}, report.Removed...)
+	slices.Sort(got)
+	if !slices.Equal(got, want) {
+		t.Errorf("reported removals = %v, want the files of the records of the run and the marked file in the folder the run owns in full: %v", got, want)
+	}
+
+	if _, err := os.ReadFile(inForeign); err != nil {
+		t.Errorf("the marked file in a folder the run does not own in full did not survive: %v", err)
+	}
+	if slices.Contains(report.Removed, inForeign) {
+		t.Errorf("a marked file the run did not write was treated as owned: %v", report.Removed)
+	}
+	for _, record := range records {
+		if _, err := os.Stat(NotePath(root, record)); err != nil {
+			t.Errorf("no file written for %s: %v", record.ID, err)
+		}
 	}
 }

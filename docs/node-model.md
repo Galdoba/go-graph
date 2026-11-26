@@ -253,6 +253,13 @@ itself, qualified by the module the load reported for the package that declares 
 version when that load reported no module. Two references naming the same entity produce one record, and
 a record produced from a reference and the record the build produces for the same entity are one node.
 
+The records a run produces for the packages it read as targets are one collection, ordered by the
+identifier each record states, so the same packages read in a different order produce the same collection.
+An entity that one package declares and another names from a reference has one entry in that collection:
+the record read from source, because it states the full set its definition requires. Between two records
+read from a name for the same entity, the entry is the one that states a region, so the collection does not
+depend on which package reached the entity first.
+
 ## Out of scope for this change
 
 Relations, the graph that holds the nodes, and the rules that decide when a recorded graph

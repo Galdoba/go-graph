@@ -77,6 +77,8 @@ A pair answered as existing becomes no when the source stops carrying what the r
 
 The domain of the relation is the pairs a rule can read. A pair is answered only when both members are records in the collection passed in; a reference to an entity with no record produces no pair, and a reference that names an entity the model records as an attribute rather than as a node names no pair either. The answers for pairs already in the collection are unchanged when the collection grows, and no node container is added to `pkg/graph`. The domain grows by making more records readable rather than by moving a pair across a package boundary.
 
+The collection passed in is the collection of the run, which holds the records of every package the run read as a target, so a pair whose members come from two such packages is answered. The collection is ordered by the identifier each record states, so the same packages read in a different order give the same collection.
+
 The answer for a pair is read from the records passed in at the moment of the call rather than from a stored structure. Answering the same collection twice gives the same ordered set, and nothing is kept between calls.
 
 A record is not a pair with itself: a record considered as both members of a pair produces no answer.

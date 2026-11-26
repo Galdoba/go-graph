@@ -307,3 +307,69 @@ func TestANoteForANodeThatIsAMemberOfNoPairStatesNoneDetected(t *testing.T) {
 		t.Errorf("the Related section does not state that nothing was detected:\n%s", content[start:])
 	}
 }
+
+// TestARecordReadFromSourceListsTheConnectionsItPointsAtInTheCollectionOfTheRun pins the direction the
+// section answers for a record the build produced: it lists the pairs that have that record as their
+// source, because such a record states the uses its definition carries. The run reads both fixtures as
+// targets, so the record of the shape is read from source, and the interface in the same package that
+// answers to it is a pair that names it as its target, which the section does not list.
+func TestARecordReadFromSourceListsTheConnectionsItPointsAtInTheCollectionOfTheRun(t *testing.T) {
+	root := t.TempDir()
+	_, records := loadRun(t, "./pkg/graph/testdata/fixtures/use", "./pkg/graph/testdata/fixtures/shape")
+
+	shape := nodeByID(records, "github.com~Galdoba~go-graph~pkg~graph~testdata~fixtures~shape~shape.Shape")
+	if shape == nil {
+		t.Fatalf("the collection holds no record for the shape: %v", nodeNames(records))
+	}
+	if shape.Provenance != graph.ProvenanceFromSource {
+		t.Fatalf("the record of %s was read from %v, want a record the run read as a target", shape.ID, shape.Provenance)
+	}
+
+	file, err := Render(root, shape, records)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	content := string(readFile(t, file))
+	section := content[strings.Index(content, "## Related"):]
+
+	want := "- [[github.com/Galdoba/go-graph/pkg/graph/testdata/fixtures/shape/Shape.Read.md|Shape.Read]]"
+	if !strings.Contains(section, want) {
+		t.Errorf("the Related section does not list the pair the record is the source of, want %s:\n%s", want, section)
+	}
+	if strings.Contains(section, "Reader.md") {
+		t.Errorf("the Related section of a record read from source lists a pair that points at it:\n%s", section)
+	}
+}
+
+// TestARecordReadFromANameListsTheConnectionsThatPointAtItInTheCollectionOfTheRun pins the direction the
+// section answers for a record produced from a reference, which is the record of a package the run did
+// not read as a target. Such a record states no uses, so the only pair it can be a member of is the one
+// the reference names it as the target of, and the pair the shape would be the source of is not listed.
+func TestARecordReadFromANameListsTheConnectionsThatPointAtItInTheCollectionOfTheRun(t *testing.T) {
+	root := t.TempDir()
+	_, first, second := loadForeignPair(t, "./pkg/graph/testdata/fixtures/use")
+	records := graph.Combine(append(first, second...))
+
+	shape := nodeByID(records, "github.com~Galdoba~go-graph~pkg~graph~testdata~fixtures~shape~shape.Shape")
+	if shape == nil {
+		t.Fatalf("the collection holds no record for the shape a reference names: %v", nodeNames(records))
+	}
+	if shape.Provenance != graph.ProvenanceFromName {
+		t.Fatalf("the record of %s was read from %v, want a record produced from a name", shape.ID, shape.Provenance)
+	}
+
+	file, err := Render(root, shape, records)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	content := string(readFile(t, file))
+	section := content[strings.Index(content, "## Related"):]
+
+	want := "- [[github.com/Galdoba/go-graph/pkg/graph/testdata/fixtures/use/Use.md|Use]]"
+	if !strings.Contains(section, want) {
+		t.Errorf("the Related section does not list the pair that names the record as its target, want %s:\n%s", want, section)
+	}
+	if strings.Contains(section, "Shape.Read.md") {
+		t.Errorf("the Related section of a record produced from a name lists a pair it is the source of:\n%s", section)
+	}
+}

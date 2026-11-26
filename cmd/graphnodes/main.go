@@ -1,7 +1,7 @@
-// Command graphnodes finds the nodes of one package, prints them to stderr, reads
-// every record back through a second, independent load, and writes the note file each record
-// maps to in the vault, which is the round trip that shows a record carries enough information
-// to locate its declaration on its own and to name the file it belongs to.
+// Command graphnodes finds the nodes of the packages it reads as targets, prints them to stderr, reads
+// every record back through a second, independent load, and writes the note file each record maps to in
+// the vault once for the run, which is the round trip that shows a record carries enough information to
+// locate its declaration on its own and to name the file it belongs to.
 package main
 
 import (
@@ -51,69 +51,73 @@ func main() {
 	}
 
 	resolved := make(map[string]*packages.Package, len(reloaded))
+	imported := make(map[string]*packages.Package, len(reloaded))
 	for _, p := range reloaded {
 		resolved[p.PkgPath] = p
+		for path, other := range p.Imports {
+			if imported[path] == nil {
+				imported[path] = other
+			}
+		}
 	}
 
-	failed := 0
 	for _, p := range found {
 		report(p)
+	}
 
-		nodes, _, err := graph.Build(p)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "%v\n", err)
-			os.Exit(1)
-		}
-		records, err := graph.SecondPass(p)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "%v\n", err)
-			os.Exit(1)
-		}
-		combined := append(nodes, records...)
-		fmt.Fprintf(os.Stderr, "%s: %d nodes, %d records produced from a reference\n",
-			p.PkgPath, len(nodes), len(records))
-		for _, n := range combined {
-			fmt.Fprintf(os.Stderr, "  %s kind=%v semantic=%v receiver=%q parent=%v exported=%v generic=%v entry_point=%v file=%s line=%d column=%d range=%d-%d attributes=%d\n",
-				n.ID, n.Kind, n.SemanticType, n.Receiver, n.Parent, n.Properties.Exported, n.Properties.Generic, n.Properties.EntryPoint,
-				n.Pos.File, n.Pos.Line, n.Pos.Column, n.Range.StartLine, n.Range.EndLine, len(n.Attributes))
-		}
+	targets, collection, counts, err := collect(found)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		os.Exit(1)
+	}
 
-		second := resolved[p.PkgPath]
-		for _, n := range combined {
-			other := resolved[n.Package.PackagePath]
-			if other == nil && second != nil {
-				// A record produced from a name belongs to a package this run did not load as a
-				// target, so it is read back against the same package as the second load holds it.
-				other = second.Imports[n.Package.PackagePath]
-			}
-			if other == nil {
-				fmt.Fprintf(os.Stderr, "  round trip %s: package %s was not loaded again\n", n.ID, n.Package.PackagePath)
+	for _, c := range counts {
+		fmt.Fprintf(os.Stderr, "%s: %d nodes, %d records produced from a reference\n", c.pkg, c.built, c.fromNames)
+	}
+
+	// The run holds one collection for every package it read as a target, so an entity both passes read
+	// is one entry and the collection is read in the same order every time.
+	fmt.Fprintf(os.Stderr, "run: %d packages, %d records\n", len(targets), len(collection))
+
+	failed := 0
+	for _, n := range collection {
+		fmt.Fprintf(os.Stderr, "  %s kind=%v semantic=%v receiver=%q parent=%v exported=%v generic=%v entry_point=%v file=%s line=%d column=%d range=%d-%d attributes=%d provenance=%v\n",
+			n.ID, n.Kind, n.SemanticType, n.Receiver, n.Parent, n.Properties.Exported, n.Properties.Generic, n.Properties.EntryPoint,
+			n.Pos.File, n.Pos.Line, n.Pos.Column, n.Range.StartLine, n.Range.EndLine, len(n.Attributes), n.Provenance)
+
+		other := resolved[n.Package.PackagePath]
+		if other == nil {
+			// A record produced from a name belongs to a package this run did not load as a target, so it
+			// is read back against the second load as it holds the import.
+			other = imported[n.Package.PackagePath]
+		}
+		if other == nil {
+			fmt.Fprintf(os.Stderr, "  round trip %s: package %s was not loaded again\n", n.ID, n.Package.PackagePath)
+			failed++
+			continue
+		}
+		if err := graph.Verify(other, n); err != nil {
+			fmt.Fprintf(os.Stderr, "  round trip %s: %v\n", n.ID, err)
+			failed++
+			continue
+		}
+		fmt.Fprintf(os.Stderr, "  round trip %s: ok\n", n.ID)
+	}
+
+	notes, err := writeNotes(targets, collection)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		os.Exit(1)
+	}
+	if checkFlag {
+		for _, file := range notes {
+			result := vault.Check(vault.Root, file)
+			if !result.Confirmed {
+				fmt.Fprintf(os.Stderr, "  check %s: %s\n", file, result.Reason)
 				failed++
 				continue
 			}
-			if err := graph.Verify(other, n); err != nil {
-				fmt.Fprintf(os.Stderr, "  round trip %s: %v\n", n.ID, err)
-				failed++
-				continue
-			}
-			fmt.Fprintf(os.Stderr, "  round trip %s: ok\n", n.ID)
-		}
-
-		notes, err := writeNotes(graph.PackageIDOf(p), combined)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "%v\n", err)
-			os.Exit(1)
-		}
-		if checkFlag {
-			for _, file := range notes {
-				result := vault.Check(vault.Root, file)
-				if !result.Confirmed {
-					fmt.Fprintf(os.Stderr, "  check %s: %s\n", file, result.Reason)
-					failed++
-					continue
-				}
-				fmt.Fprintf(os.Stderr, "  check %s: ok\n", file)
-			}
+			fmt.Fprintf(os.Stderr, "  check %s: ok\n", file)
 		}
 	}
 
@@ -122,15 +126,16 @@ func main() {
 	}
 }
 
-// writeNotes runs the action over one package, states what it removed, and lists the files it
-// wrote so each can be read back and confirmed against the code. The package the run built is
-// passed with the records, because the records of a run can map to folders of other packages.
-func writeNotes(pkg graph.PackageID, nodes []*graph.Node) ([]string, error) {
-	if len(nodes) == 0 {
+// writeNotes runs the action for the records of the run, states what it removed, and lists the files it
+// wrote so each can be read back and confirmed against the code. The packages the run read as targets are
+// passed with the records, because the run owns the folders they map to, while a record produced from a
+// reference maps to a folder another run may write in.
+func writeNotes(targets []graph.PackageID, records []*graph.Node) ([]string, error) {
+	if len(records) == 0 {
 		return nil, nil
 	}
 
-	report, err := vault.Rebuild(vault.Root, pkg, nodes)
+	report, err := vault.Rebuild(vault.Root, targets, records)
 	if err != nil {
 		return nil, err
 	}
@@ -141,8 +146,8 @@ func writeNotes(pkg graph.PackageID, nodes []*graph.Node) ([]string, error) {
 		fmt.Fprintf(os.Stderr, "  unreadable %s\n", file)
 	}
 
-	files := make([]string, 0, len(nodes))
-	for _, n := range nodes {
+	files := make([]string, 0, len(records))
+	for _, n := range records {
 		file := vault.NotePath(vault.Root, n)
 		fmt.Fprintf(os.Stderr, "  wrote %s\n", file)
 		files = append(files, file)
@@ -167,6 +172,37 @@ func load(target string, recursive bool) ([]*packages.Package, error) {
 		return packages.Load(cfg, target+"/...")
 	}
 	return packages.Load(cfg, target)
+}
+
+// packageCounts states what one package of the run contributed to the collection, so the counts the run
+// states can be read without the command printing them.
+type packageCounts struct {
+	pkg       string
+	built     int
+	fromNames int
+}
+
+// collect assembles the collection the run holds for the packages it read as targets: the records each
+// package produced together with the records its references name, merged into one entry per identifier
+// and ordered by it. The targets are returned in the order the load gave them, because the folders the
+// run owns in full are the folders those packages map to.
+func collect(found []*packages.Package) (targets []graph.PackageID, records []*graph.Node, counts []packageCounts, err error) {
+	for _, p := range found {
+		built, _, err := graph.Build(p)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		fromNames, err := graph.SecondPass(p)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		counts = append(counts, packageCounts{pkg: p.PkgPath, built: len(built), fromNames: len(fromNames)})
+
+		targets = append(targets, graph.PackageIDOf(p))
+		records = append(records, built...)
+		records = append(records, fromNames...)
+	}
+	return targets, graph.Combine(records), counts, nil
 }
 
 // packageDir reports the directory a filesystem target names, which is the directory the

@@ -39,6 +39,42 @@ func groundModule(t *testing.T, source string) string {
 	return dir
 }
 
+// loadRun reads several packages as the targets of one run and returns the collection that run
+// produces: the records of each target together with the records the names its references carry,
+// merged so an entity both passes read appears once. The targets are returned with the collection,
+// because ownership is stated for the packages the run read as targets rather than for the folders
+// the collection happens to map to.
+func loadRun(t *testing.T, patterns ...string) (targets []graph.PackageID, records []*graph.Node) {
+	t.Helper()
+
+	found, err := packages.Load(&packages.Config{Mode: graph.LoadMode, Dir: projectRoot()}, patterns...)
+	if err != nil {
+		t.Fatalf("load %v: %v", patterns, err)
+	}
+	if len(found) != len(patterns) {
+		t.Fatalf("load %v: expected %d packages, got %d", patterns, len(patterns), len(found))
+	}
+
+	var read []*graph.Node
+	for _, p := range found {
+		if len(p.Errors) > 0 {
+			t.Fatalf("load %s: %v", p.PkgPath, p.Errors)
+		}
+		own, _, err := graph.Build(p)
+		if err != nil {
+			t.Fatalf("build %s: %v", p.PkgPath, err)
+		}
+		fromNames, err := graph.SecondPass(p)
+		if err != nil {
+			t.Fatalf("second pass over %s: %v", p.PkgPath, err)
+		}
+		targets = append(targets, graph.PackageIDOf(p))
+		read = append(read, own...)
+		read = append(read, fromNames...)
+	}
+	return targets, graph.Combine(read)
+}
+
 // loadForeignPair builds one package of the graph fixtures as a target and the records the second
 // pass produces for the names its references carry. The load is returned with both sets, so a test
 // can take away the syntax the load reported and see what a record that states no region writes.

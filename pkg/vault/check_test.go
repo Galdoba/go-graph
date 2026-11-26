@@ -139,7 +139,7 @@ func TestCheckReportsAFileItCannotRead(t *testing.T) {
 	second := loadGround(t, "./testdata/second")
 	pkg := second[0].Package
 
-	if _, err := Rebuild(root, pkg, second); err != nil {
+	if _, err := Rebuild(root, []graph.PackageID{pkg}, second); err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
 
@@ -153,7 +153,7 @@ func TestCheckReportsAFileItCannotRead(t *testing.T) {
 		t.Errorf("check of %s = %s, want %s", unreadable, result.Reason, ReasonUnreadableFrontmatter)
 	}
 
-	report, err := Rebuild(root, pkg, second)
+	report, err := Rebuild(root, []graph.PackageID{pkg}, second)
 	if err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}

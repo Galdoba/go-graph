@@ -8,7 +8,7 @@ discrete, so nothing observes the vault between them; a check answers from the f
 at the moment it is invoked, without the build that produced the file.
 
 Implementation: `pkg/vault`. `Folder` and `FileName` are the mapping, `ParseFileName` reads a name
-back, `Render` writes a note, `Read` reads its record, `Rebuild` is the action over one package,
+back, `Render` writes a note, `Read` reads its record, `Rebuild` is the action over one run,
 and `Check` answers for one file.
 
 ## Location
@@ -146,24 +146,35 @@ so the section of `Shape.md` lists the node that used it:
 - [[github.com/Galdoba/go-graph/pkg/graph/testdata/fixtures/use/Use.md|Use]]
 ```
 
+The section is answered from the records of the run, which hold every package the run read as a target,
+rather than from the records of one package. The side it lists depends on how the record was read: a
+record the build produced states the uses its declaration carries, so its section lists the connections it
+points at, while a record produced from a name states no uses, so the connections it can be a member of
+are the ones that name it as their target. Read from the two sides of the same pair, `Use.md` lists
+`Shape.md` and `Shape.md` lists `Use.md`, and a pair whose members come from two packages of the run is
+answered only when the collection holds both of them. A folder that two runs write shows the view of the
+run that last wrote a file in it, so the section of a note is the view of the run that wrote it and not
+the view of a later run that reads the same records.
+
 What such a note should hold beyond the values its record states is decided in a later change, from
 what the first run produces.
 
 ## The rebuild action
 
-The action runs over one package. It removes the marked files in the folder that package maps to
-before writing the files the mapping produces for the current node set, and it states which files
-it removed. Nothing is carried between builds: the action does not look at what a file was named
-before, so a name this build no longer produces is replaced rather than left behind. A file whose
-frontmatter cannot be read is reported as unreadable rather than removed, because ownership cannot
-be confirmed from it.
+The action runs over the records of one run, which covers every package the run read as a target. It
+removes the marked files in the folder that each of those packages maps to before writing the
+files the mapping produces for the records of the run, and it states which files it removed. Nothing
+is carried between builds: the action does not look at what a file was named before, so a name this
+build no longer produces is replaced rather than left behind. A file whose frontmatter cannot be read
+is reported as unreadable rather than removed, because ownership cannot be confirmed from it.
 
-Ownership in a folder that a record produced from a reference maps to follows the records of the run
-rather than the folder, because several runs write in the same folder for different packages. There the
-action removes only the marked files the records of this run map to, so a marked file another run wrote
-stays, and a file this run does not map to is not judged at all, which is why it is not reported as
-unreadable. The folders and the entries in them are visited in sorted order, so the removals the action
-states are the same for the same records.
+Ownership has two levels across the run: a folder one of its packages maps to is owned in full, and a
+folder the run reaches only through a reference is owned file by file. In the second kind of folder
+ownership follows the records of the run rather than the folder, because several runs write in the same
+folder for different packages. There the action removes only the marked files the records of this run
+map to, so a marked file another run wrote stays, and a file this run does not map to is not judged at
+all, which is why it is not reported as unreadable. The folders and the entries in them are visited in
+sorted order, so the removals the action states are the same for the same records.
 
 ## The check and its reasons
 

@@ -113,12 +113,12 @@ func body(n *graph.Node, nodes []*graph.Node) string {
 	// states its heading and nothing else.
 	lines = append(lines, "## Code", "")
 	if n.Pos.File != "" {
+		lines = append(lines, "```go")
 		if doc := docComment(n); doc != "" {
 			for _, line := range strings.Split(strings.TrimSpace(doc), "\n") {
 				lines = append(lines, "// "+strings.TrimSpace(line))
 			}
 		}
-		lines = append(lines, "```go")
 		for _, line := range strings.Split(codeSnippet(n), "\n") {
 			lines = append(lines, line)
 		}
@@ -176,11 +176,13 @@ func codeSnippet(n *graph.Node) string {
 	return strings.Join(lines, "\n")
 }
 
-// relatedLinks returns the Obsidian wikilinks the `## Related` section lists. A record the build
-// produced lists the connections it points at. A record produced from a reference carries no uses,
-// so the connections it can be a member of are the ones that point at it, which is the reference
-// that named it. The path a link carries is the folder the package of the other record maps to,
-// which is not the folder of the note itself when that record was produced from a reference.
+// relatedLinks returns the Obsidian wikilinks the `## Related` section lists. The section is answered
+// from the collection of the run, and the direction it lists depends on how the record was read: a
+// record the build produced lists the connections it points at, and a record produced from a name
+// lists the connections that point at it, because such a record states no uses, so the rule that reads
+// uses is not answered for it and the pair it can be a member of is the reference that named it. The
+// path a link carries is the folder the package of the other record maps to, which is not the folder of
+// the note itself when that record was produced from a reference.
 func relatedLinks(n *graph.Node, nodes []*graph.Node) []string {
 	byID := make(map[graph.ID]*graph.Node, len(nodes))
 	for _, node := range nodes {
@@ -189,7 +191,11 @@ func relatedLinks(n *graph.Node, nodes []*graph.Node) []string {
 
 	var links []string
 	for _, pair := range link.Pairs(nodes) {
-		if pair.Source != n.ID && !(n.Provenance == graph.ProvenanceFromName && pair.Target == n.ID) {
+		fromName := n.Provenance == graph.ProvenanceFromName
+		if fromName && pair.Target != n.ID {
+			continue
+		}
+		if !fromName && pair.Source != n.ID {
 			continue
 		}
 		other := pair.Target
