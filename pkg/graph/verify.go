@@ -3,6 +3,7 @@ package graph
 import (
 	"fmt"
 	"go/ast"
+	"go/types"
 
 	"golang.org/x/tools/go/packages"
 )
@@ -50,6 +51,42 @@ func Verify(p *packages.Package, n *Node) error {
 	}
 	return fmt.Errorf("graph: node %s does not resolve to a declaration of %s %s at %s:%d",
 		n.ID, n.Kind, n.Name, n.Pos.File, n.Range.StartLine)
+}
+
+// DeclaresEntity reports whether a package declares the entity a record describes. This is how a
+// check answers a record that states no region: the entity is read from the package the record names
+// rather than from a place in a file, because a record produced from a name carries no region when the
+// load reported no syntax for the package that declares the entity. The name, the kind and the exported
+// value are compared, and a method is read through the type its receiver names, which is the entity the
+// package scope holds.
+func DeclaresEntity(p *packages.Package, n *Node) bool {
+	if p == nil || p.Types == nil {
+		return false
+	}
+
+	if n.Receiver == "" {
+		obj := p.Types.Scope().Lookup(n.Name)
+		if obj == nil {
+			return false
+		}
+		return kindOf(obj) == n.Kind && obj.Exported() == n.Properties.Exported
+	}
+
+	tn, ok := p.Types.Scope().Lookup(n.Receiver).(*types.TypeName)
+	if !ok {
+		return false
+	}
+	named, ok := types.Unalias(tn.Type()).(*types.Named)
+	if !ok {
+		return false
+	}
+	for fn := range named.Methods() {
+		if fn.Name() != n.Name {
+			continue
+		}
+		return kindOf(fn) == n.Kind && fn.Exported() == n.Properties.Exported
+	}
+	return false
 }
 
 // declaresName reports whether a declaration declares an entity with this name, which is

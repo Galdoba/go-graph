@@ -4,6 +4,7 @@ import (
 	"os"
 	"path"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/Galdoba/go-graph/pkg/graph"
@@ -175,5 +176,84 @@ func TestParsingAFileNameKeepsTheNodeNameIntact(t *testing.T) {
 	}
 	if _, err := ParseFileName("Thing.Read.Read.md"); err == nil {
 		t.Error("a name with more than one dot was read as the node part of an identifier, which two identifiers cannot produce")
+	}
+}
+
+// TestTwoVersionsOfOnePackagePathMapToTwoFolders checks the part of the location a record states that
+// the folder has to carry. Two records that differ only by version cannot share one file, because a
+// file that holds two identifiers cannot be read back to one node, while a record that states no
+// version keeps the folder the package path alone gives.
+func TestTwoVersionsOfOnePackagePathMapToTwoFolders(t *testing.T) {
+	root := t.TempDir()
+
+	unversioned := graph.PackageID{ModulePath: "mod.test", PackagePath: "mod.test/shape", Name: "shape"}
+	if got := Folder(root, unversioned); got != path.Join(root, "mod.test/shape") {
+		t.Errorf("folder for a record that states no version = %s, want %s", got, path.Join(root, "mod.test/shape"))
+	}
+
+	first := unversioned
+	first.ModuleVersion = "v1.2.3"
+	second := unversioned
+	second.ModuleVersion = "v1.3.0"
+
+	if got := Folder(root, first); got != path.Join(root, "mod.test/shape", "v1.2.3") {
+		t.Errorf("folder for the record that states v1.2.3 = %s, want %s", got, path.Join(root, "mod.test/shape", "v1.2.3"))
+	}
+	if Folder(root, first) == Folder(root, second) {
+		t.Errorf("both versions map to %s, want one folder per version", Folder(root, first))
+	}
+
+	older := &graph.Node{ID: graph.ID{Package: first, Name: "Shape"}, Package: first, Name: "Shape",
+		Kind: graph.KindType, SemanticType: graph.SemanticStructure}
+	newer := &graph.Node{ID: graph.ID{Package: second, Name: "Shape"}, Package: second, Name: "Shape",
+		Kind: graph.KindType, SemanticType: graph.SemanticStructure}
+	if NotePath(root, older) == NotePath(root, newer) {
+		t.Errorf("one entity at two versions maps to one file %s, want two files", NotePath(root, older))
+	}
+}
+
+// TestAForeignNoteReadsBackToTheIdentifierItsRecordStates renders a note for a record produced from a
+// reference and reads it back from its location and its name alone. The location states the package
+// the record names rather than the package that referenced it, so the note is read as a node of the
+// package that declares the entity.
+func TestAForeignNoteReadsBackToTheIdentifierItsRecordStates(t *testing.T) {
+	root := t.TempDir()
+	_, _, foreign := loadForeignPair(t, "./pkg/graph/testdata/fixtures/use")
+	record := nodeByID(foreign, "github.com~Galdoba~go-graph~pkg~graph~testdata~fixtures~shape~shape.Shape")
+	if record == nil {
+		t.Fatalf("the second pass produced no record for the shape a reference names: %v", nodeNames(foreign))
+	}
+
+	file, err := Render(root, record, nil)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+
+	location := strings.TrimPrefix(path.Dir(file), root+"/")
+	if location != record.Package.PackagePath {
+		t.Errorf("the location reads as %s, want the package path the record states, %s", location, record.Package.PackagePath)
+	}
+
+	read, err := Read(file)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	parts, err := ParseFileName(path.Base(file))
+	if err != nil {
+		t.Fatalf("read the name back: %v", err)
+	}
+
+	assembled := graph.ID{
+		Package: graph.PackageID{
+			ModulePath:    read.Module,
+			ModuleVersion: read.Version,
+			PackagePath:   location,
+			Name:          read.Package,
+		},
+		Receiver: parts.Receiver,
+		Name:     parts.Name,
+	}
+	if assembled != record.ID {
+		t.Errorf("the location and the name read as %s, want the identifier the record states, %s", assembled, record.ID)
 	}
 }

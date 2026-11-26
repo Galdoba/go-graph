@@ -209,3 +209,152 @@ func TestCheckReportsAValueOutsideItsClosedSetAsUnreadable(t *testing.T) {
 		}
 	}
 }
+
+// TestCheckConfirmsAForeignNoteAgainstTheEntityItsPackageDeclares checks a note for a record that
+// states no region. Nothing in the file names a place to read the node at, so the answer is given by
+// the package the record names holding the entity, and the check confirms it without the build that
+// produced the file.
+func TestCheckConfirmsAForeignNoteAgainstTheEntityItsPackageDeclares(t *testing.T) {
+	root := t.TempDir()
+	_, second := loadForeignPairWithoutSyntax(t, "./pkg/graph/testdata/fixtures/use")
+	hidden := nodeByID(second, "github.com~Galdoba~go-graph~pkg~graph~testdata~fixtures~shape~shape.hidden")
+	if hidden == nil {
+		t.Fatalf("the second pass produced no record for the entity the alias names: %v", nodeNames(second))
+	}
+	if hidden.Pos.File != "" {
+		t.Fatalf("the record of %s states a region, want one that states none", hidden.ID)
+	}
+
+	file, err := Render(root, hidden, nil)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+
+	result := Check(root, file)
+	if !result.Confirmed {
+		t.Errorf("check of %s = %s, want the file answered against the entity the package declares", file, result.Reason)
+	}
+}
+
+// TestCheckRefutesAForeignNoteWhosePackageNoLongerDeclaresTheEntity keeps the record of a note that
+// states no region and asks for an entity its package does not declare, which is the answer the check
+// gives when the code at that moment no longer holds the name the record states.
+func TestCheckRefutesAForeignNoteWhosePackageNoLongerDeclaresTheEntity(t *testing.T) {
+	root := t.TempDir()
+	_, second := loadForeignPairWithoutSyntax(t, "./pkg/graph/testdata/fixtures/use")
+	hidden := nodeByID(second, "github.com~Galdoba~go-graph~pkg~graph~testdata~fixtures~shape~shape.hidden")
+	if hidden == nil {
+		t.Fatalf("the second pass produced no record for the entity the alias names: %v", nodeNames(second))
+	}
+	if hidden.Pos.File != "" {
+		t.Fatalf("the record of %s states a region, want one that states none", hidden.ID)
+	}
+
+	gone := *hidden
+	gone.Name = "Gone"
+	gone.ID = graph.ID{Package: hidden.Package, Name: "Gone"}
+
+	file, err := Render(root, &gone, nil)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+
+	result := Check(root, file)
+	if result.Confirmed || result.Reason != ReasonPackageNoLongerDeclares {
+		t.Errorf("check of %s = %s, want %s", file, result.Reason, ReasonPackageNoLongerDeclares)
+	}
+}
+
+// TestCheckRefutesAForeignNoteForAPackageItCannotRead checks the reason that stands on its own: a note
+// whose record names a package no load can resolve is refuted for that reason rather than for a reason
+// that needs a region the record does not carry.
+func TestCheckRefutesAForeignNoteForAPackageItCannotRead(t *testing.T) {
+	root := t.TempDir()
+	unknown := graph.PackageID{ModulePath: "nowhere.test", PackagePath: "nowhere.test/shape", Name: "shape"}
+	node := &graph.Node{ID: graph.ID{Package: unknown, Name: "Shape"}, Package: unknown, Name: "Shape",
+		Kind: graph.KindType, SemanticType: graph.SemanticStructure}
+
+	file, err := Render(root, node, nil)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+
+	result := Check(root, file)
+	if result.Confirmed || result.Reason != ReasonPackageNotReadable {
+		t.Errorf("check of %s = %s, want %s", file, result.Reason, ReasonPackageNotReadable)
+	}
+}
+
+// TestCheckRefutesAForeignNoteInAFolderThatStatesAnotherVersion checks that the location is read
+// against the package part the record states, version included. The same record in the folder that
+// states its own version is confirmed, so the version is what refutes the file when the folder states
+// another one.
+func TestCheckRefutesAForeignNoteInAFolderThatStatesAnotherVersion(t *testing.T) {
+	root := t.TempDir()
+	_, second := loadForeignPairWithoutSyntax(t, "./pkg/graph/testdata/fixtures/use")
+	hidden := nodeByID(second, "github.com~Galdoba~go-graph~pkg~graph~testdata~fixtures~shape~shape.hidden")
+	if hidden == nil {
+		t.Fatalf("the second pass produced no record for the entity the alias names: %v", nodeNames(second))
+	}
+
+	versioned := *hidden
+	versioned.Package.ModuleVersion = "v1.2.3"
+	versioned.ID.Package.ModuleVersion = "v1.2.3"
+
+	file, err := Render(root, &versioned, nil)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	if path.Dir(file) != path.Join(root, hidden.Package.PackagePath, "v1.2.3") {
+		t.Fatalf("the note was written in %s, want the folder that states the version the record states", path.Dir(file))
+	}
+	if result := Check(root, file); !result.Confirmed {
+		t.Fatalf("check of %s = %s, want the file confirmed in the folder that states its version", file, result.Reason)
+	}
+
+	other := versioned.Package
+	other.ModuleVersion = "v1.3.0"
+	moved := path.Join(Folder(root, other), path.Base(file))
+	if err := os.MkdirAll(Folder(root, other), 0o755); err != nil {
+		t.Fatalf("create the folder that states another version: %v", err)
+	}
+	if err := os.WriteFile(moved, readFile(t, file), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	result := Check(root, moved)
+	if result.Confirmed || result.Reason != ReasonLocationMismatch {
+		t.Errorf("check of %s = %s, want %s", moved, result.Reason, ReasonLocationMismatch)
+	}
+}
+
+// TestCheckRefutesAForeignNoteWhoseNameIsNotItsNodePart keeps a foreign record and writes its content
+// under a name that is not the node part of the identifier the record states. The record states a
+// method, so its name carries the type the method is declared on, and the check refutes the file for
+// the name before it reads the package.
+func TestCheckRefutesAForeignNoteWhoseNameIsNotItsNodePart(t *testing.T) {
+	root := t.TempDir()
+	_, _, second := loadForeignPair(t, "./pkg/graph/testdata/fixtures/use")
+	method := nodeByID(second, "github.com~Galdoba~go-graph~pkg~graph~testdata~fixtures~shape~shape.Shape.Read")
+	if method == nil {
+		t.Fatalf("the second pass produced no record for the method a reference names: %v", nodeNames(second))
+	}
+
+	file, err := Render(root, method, nil)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	if path.Base(file) != "Shape.Read.md" {
+		t.Fatalf("the note maps to %s, want the node part of the identifier the record states", path.Base(file))
+	}
+
+	moved := path.Join(Folder(root, method.Package), "Read.md")
+	if err := os.WriteFile(moved, readFile(t, file), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	result := Check(root, moved)
+	if result.Confirmed || result.Reason != ReasonNameMismatch {
+		t.Errorf("check of %s = %s, want %s", moved, result.Reason, ReasonNameMismatch)
+	}
+}

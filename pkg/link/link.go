@@ -191,8 +191,13 @@ func recordsMethod(target *graph.Node, spec graph.Attribute) bool {
 
 // answerCarriedReference reads the references the source carries, which is all a pair can hold for
 // this relation. Because it reads no semantic value, it cannot be unable to answer for an
-// unresolved record.
+// unresolved record. A record read from a name states no uses, because no declaration body of that
+// package was read, so this rule cannot read an absence as a claim that the entity refers to
+// nothing.
 func answerCarriedReference(name string, source, target *graph.Node) (bool, error) {
+	if source.Provenance == graph.ProvenanceFromName {
+		return false, &UndecidedError{Rule: name}
+	}
 	for _, a := range source.Attributes {
 		// Only a use records an entity a declaration refers to, so an alias or a method attribute
 		// names no connection of this kind. A reference with no name points at no record.

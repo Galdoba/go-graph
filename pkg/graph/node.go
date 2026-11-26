@@ -51,4 +51,5 @@ type Node struct {
 	SemanticType SemanticType   `json:"semantic_type"`
 	Properties   NodeProperties `json:"properties"`
 	Attributes   []Attribute    `json:"attributes"`
+	Provenance   Provenance     `json:"provenance"` // where the values of the record were read from
 }

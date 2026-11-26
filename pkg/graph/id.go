@@ -148,6 +148,12 @@ func baseNamed(t types.Type) (*types.Named, bool) {
 // missing for the standard library, in which case the package path alone qualifies the
 // identifier in the record, while the printed form prints the name the package declares, because
 // the printed form has no module part to carry the path.
+// PackageIDOf reports the package a loaded package belongs to, which is the package part of the
+// records a build produces for it.
+func PackageIDOf(p *packages.Package) PackageID {
+	return packageID(p)
+}
+
 func packageID(p *packages.Package) PackageID {
 	id := PackageID{PackagePath: p.PkgPath, Name: p.Name}
 	if p.Module != nil {

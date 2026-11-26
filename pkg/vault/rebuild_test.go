@@ -288,3 +288,84 @@ func TestRebuildReplacesAFileNamedInTheEarlierForm(t *testing.T) {
 		t.Errorf("the folder holds %d files, want one for each of the %d nodes: %v", len(entries), len(second), nodeNames(second))
 	}
 }
+
+// TestRebuildRemovesOnlyTheFilesItsOwnRecordsMapToInAForeignFolder checks that a run writing in a
+// folder of a package it did not build removes only the files its own records map to there, so a file
+// another run wrote in the same folder survives. The two runs build the same package and each carry a
+// different record of the same foreign package, which is the pair the action has to tell apart.
+func TestRebuildRemovesOnlyTheFilesItsOwnRecordsMapToInAForeignFolder(t *testing.T) {
+	root := t.TempDir()
+	_, built, records := loadForeignPair(t, "./pkg/graph/testdata/fixtures/use")
+	pkg := built[0].Package
+
+	own := make([]string, len(built))
+	for i, n := range built {
+		own[i] = NotePath(root, n)
+	}
+	slices.Sort(own)
+
+	kept := nodeByID(records, "github.com~Galdoba~go-graph~pkg~graph~testdata~fixtures~shape~shape.Shape")
+	if kept == nil {
+		t.Fatalf("the second pass produced no record for the type a reference names: %v", nodeNames(records))
+	}
+	other := nodeByID(records, "github.com~Galdoba~go-graph~pkg~graph~testdata~fixtures~shape~shape.Inner.Count")
+	if other == nil {
+		t.Fatalf("the second pass produced no record for a method of a type a reference names: %v", nodeNames(records))
+	}
+
+	// The first run writes the file of the record it carries, which is the file the second run has to
+	// leave in place.
+	if _, err := Rebuild(root, pkg, append(append([]*graph.Node{}, built...), kept)); err != nil {
+		t.Fatalf("rebuild: %v", err)
+	}
+
+	// In the foreign folder the second run has no file of its own yet, so it judges nothing there.
+	secondRun, err := Rebuild(root, pkg, append(append([]*graph.Node{}, built...), other))
+	if err != nil {
+		t.Fatalf("rebuild: %v", err)
+	}
+	if !slices.Equal(secondRun.Removed, own) {
+		t.Errorf("reported removals = %v, want only the files of the package this run built: %v", secondRun.Removed, own)
+	}
+	if len(secondRun.Unreadable) != 0 {
+		t.Errorf("reported unreadable files = %v, want none, because the action judged no file it did not map to", secondRun.Unreadable)
+	}
+	if _, err := os.Stat(NotePath(root, kept)); err != nil {
+		t.Errorf("the file the other run wrote in the foreign folder did not survive: %v", err)
+	}
+
+	// The second run now owns the file it wrote there, so it is the only foreign file it removes.
+	want := append([]string{NotePath(root, other)}, own...)
+	slices.Sort(want)
+	secondRun, err = Rebuild(root, pkg, append(append([]*graph.Node{}, built...), other))
+	if err != nil {
+		t.Fatalf("rebuild: %v", err)
+	}
+	if !slices.Equal(secondRun.Removed, want) {
+		t.Errorf("reported removals = %v, want the files this run mapped to: %v", secondRun.Removed, want)
+	}
+	if len(secondRun.Unreadable) != 0 {
+		t.Errorf("reported unreadable files = %v, want none, because the action judged no file it did not map to", secondRun.Unreadable)
+	}
+	if _, err := os.Stat(NotePath(root, kept)); err != nil {
+		t.Errorf("the file the other run wrote in the foreign folder did not survive: %v", err)
+	}
+
+	// The same assertion mirrored: the run that produced the first file keeps the file the other run
+	// wrote, so ownership in a foreign folder follows the records of the run rather than the folder.
+	firstRun, err := Rebuild(root, pkg, append(append([]*graph.Node{}, built...), kept))
+	if err != nil {
+		t.Fatalf("rebuild: %v", err)
+	}
+	want = append([]string{NotePath(root, kept)}, own...)
+	slices.Sort(want)
+	if !slices.Equal(firstRun.Removed, want) {
+		t.Errorf("reported removals = %v, want the files this run mapped to: %v", firstRun.Removed, want)
+	}
+	if len(firstRun.Unreadable) != 0 {
+		t.Errorf("reported unreadable files = %v, want none, because the action judged no file it did not map to", firstRun.Unreadable)
+	}
+	if _, err := os.Stat(NotePath(root, other)); err != nil {
+		t.Errorf("the file the other run wrote in the foreign folder did not survive: %v", err)
+	}
+}

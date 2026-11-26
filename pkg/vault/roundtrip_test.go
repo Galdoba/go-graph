@@ -97,39 +97,127 @@ func TestRoundTripInFileForm(t *testing.T) {
 	}
 }
 
-// TestRoundTripWritesNoFileForAPackageTheGraphNeverBuilt checks a recorded reference that resolves
-// outside the node set. The ground reference from main to strings.ToLower names a package the
-// graph never loaded as a target, so the file count stays the number of nodes the build produced.
-func TestRoundTripWritesNoFileForAPackageTheGraphNeverBuilt(t *testing.T) {
-	nodes := loadGround(t, "./testdata")
-
-	var referent graph.ID
-	for _, n := range nodes {
-		for _, a := range n.Attributes {
-			if a.Ref.Package.PackagePath == "strings" {
-				referent = a.Ref
-			}
-		}
-	}
-	if referent.Name == "" {
-		t.Fatalf("the ground records no reference to a package the graph never built: %v", nodeNames(nodes))
-	}
-
+// TestRoundTripForAForeignNoteReadsBackToTheRecordItClaims runs the round trip for a note written for a
+// record produced from a reference. The recorded reference from main to a name of a package the build never
+// read as a target now produces a record, so a file exists for it in the folder that package path maps to,
+// and the location and the name together read back to the identifier that record states. Two records for one
+// package path at two module versions give two files, because one folder cannot hold two identifiers that
+// read back as one node, and the check reads each folder against the version its own record states.
+func TestRoundTripForAForeignNoteReadsBackToTheRecordItClaims(t *testing.T) {
 	root := t.TempDir()
-	for _, n := range nodes {
-		if _, err := Render(root, n, nil); err != nil {
+	_, built, records := loadForeignPair(t, "./testdata")
+	if len(records) == 0 {
+		t.Fatalf("the second pass produced no record for a package the build never read as a target: %v", nodeNames(built))
+	}
+
+	for _, n := range records {
+		file, err := Render(root, n, append(built, records...))
+		if err != nil {
 			t.Fatalf("render %s: %v", n.ID, err)
 		}
+
+		location := path.Dir(file)
+		if location != Folder(root, n.Package) {
+			t.Errorf("the note of %s sits in %s, want the folder the package its record names maps to", n.ID, location)
+		}
+
+		read, err := Read(file)
+		if err != nil {
+			t.Fatalf("read %s: %v", file, err)
+		}
+		parts, err := ParseFileName(path.Base(file))
+		if err != nil {
+			t.Fatalf("read the name %s back: %v", path.Base(file), err)
+		}
+		pkg := graph.PackageID{
+			ModulePath:    read.Module,
+			ModuleVersion: read.Version,
+			PackagePath:   read.PackagePath,
+			Name:          read.Package,
+		}
+		if pkg != n.Package {
+			t.Errorf("the package parts read from %s do not match the record of %s: %+v", file, n.ID, read)
+		}
+		assembled := graph.ID{Package: pkg, Receiver: parts.Receiver, Name: parts.Name}
+		if assembled != n.ID {
+			t.Errorf("the location and the name read as %s, want the identifier the record states, %s", assembled, n.ID)
+		}
+		if result := Check(root, file); !result.Confirmed {
+			t.Errorf("check of %s = %s, want the file confirmed against the package its record names", file, result.Reason)
+		}
 	}
 
-	entries, err := os.ReadDir(Folder(root, nodes[0].Package))
+	// The same entity at two module versions is two records, so it is two files.
+	_, _, foreign := loadForeignPair(t, "./pkg/graph/testdata/fixtures/use")
+	shape := nodeByID(foreign, "github.com~Galdoba~go-graph~pkg~graph~testdata~fixtures~shape~shape.Shape")
+	if shape == nil {
+		t.Fatalf("the second pass produced no record for the shape a reference names: %v", nodeNames(foreign))
+	}
+
+	older := *shape
+	older.Package.ModuleVersion = "v1.2.3"
+	older.ID.Package = older.Package
+	newer := *shape
+	newer.Package.ModuleVersion = "v1.3.0"
+	newer.ID.Package = newer.Package
+
+	olderFile, err := Render(root, &older, nil)
 	if err != nil {
-		t.Fatalf("read folder: %v", err)
+		t.Fatalf("render %s: %v", older.ID, err)
 	}
-	if len(entries) != len(nodes) {
-		t.Errorf("the folder holds %d files, want one for each of the %d nodes", len(entries), len(nodes))
+	newerFile, err := Render(root, &newer, nil)
+	if err != nil {
+		t.Fatalf("render %s: %v", newer.ID, err)
 	}
-	if _, err := os.Stat(Folder(root, referent.Package)); err == nil {
-		t.Errorf("a folder was written for package %s, which the graph never built", referent.Package.PackagePath)
+	if olderFile == newerFile {
+		t.Fatalf("one entity at two versions maps to one file %s, want two files", olderFile)
+	}
+
+	for _, want := range []struct {
+		file string
+		id   graph.ID
+	}{{olderFile, older.ID}, {newerFile, newer.ID}} {
+		read, err := Read(want.file)
+		if err != nil {
+			t.Fatalf("read %s: %v", want.file, err)
+		}
+		parts, err := ParseFileName(path.Base(want.file))
+		if err != nil {
+			t.Fatalf("read the name %s back: %v", path.Base(want.file), err)
+		}
+		pkg := graph.PackageID{
+			ModulePath:    read.Module,
+			ModuleVersion: read.Version,
+			PackagePath:   read.PackagePath,
+			Name:          read.Package,
+		}
+		if path.Dir(want.file) != Folder(root, pkg) {
+			t.Errorf("the note read from %s sits in a folder that does not state the version its record states", want.file)
+		}
+		assembled := graph.ID{Package: pkg, Receiver: parts.Receiver, Name: parts.Name}
+		if assembled != want.id {
+			t.Errorf("%s reads as %s, want the identifier its record states, %s", want.file, assembled, want.id)
+		}
+		if assembled != want.id {
+			t.Errorf("%s reads as %s, want the identifier its record states, %s", want.file, assembled, want.id)
+		}
+		if result := Check(root, want.file); !result.Confirmed {
+			t.Errorf("check of %s = %s, want the file confirmed in the folder that states the version its record states",
+				want.file, result.Reason)
+		}
+	}
+
+	// A file read in a folder that states another version is refuted, because the location is read
+	// against the version the record states rather than against the folder it happens to sit in.
+	misplaced := path.Join(Folder(root, newer.Package), FileName(&older))
+	data, err := os.ReadFile(olderFile)
+	if err != nil {
+		t.Fatalf("read %s: %v", olderFile, err)
+	}
+	if err := os.WriteFile(misplaced, data, 0o644); err != nil {
+		t.Fatalf("write %s: %v", misplaced, err)
+	}
+	if result := Check(root, misplaced); result.Confirmed || result.Reason != ReasonLocationMismatch {
+		t.Errorf("check of %s = %s, want the file refuted as a location that states another version", misplaced, result.Reason)
 	}
 }

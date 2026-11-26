@@ -116,7 +116,7 @@ alias owns no method set and no semantic type of its own.
 | Generic type parameter | no | `generic type parameter, not a package-level declaration` | reported as excluded |
 | Blank identifier `_` | no | `blank identifier names no entity` | reported as excluded |
 | Method reachable only through embedding | no | `produced by a lookup rather than by a declaration` | the outer type keeps the embedding, and a call resolves to the node of the type that declares the method |
-| Entity declared by another package | no in this package | `declared by another package and owned by that package graph` | a reference resolves to the node owned by that package |
+| Entity declared by another package | no in this package, yes in the graph that owns it | `declared by another package and owned by that package graph` | a reference resolves to the node owned by that package, including a method declared on a package-level type of it, which the definition covers through the receiver rather than through the package scope |
 | The package itself | no | `the package groups nodes and is not a node` | the package namespace in the identifier |
 | Declared type alias (`type Mirror = Struct1`) | no | `alias is a name, not an entity` | alias attribute of the resolved node (when target is a same-package node) |
 
@@ -220,6 +220,38 @@ The package groups nodes and is never a node itself. A node records the package 
 to and its properties. The parent of a package-level node is the package namespace,
 which carries no name of its own; the parent of a method node is the node of the named type
 its receiver is based on.
+
+## The second pass
+
+`Build` produces the records of one package. A reference that names an entity of a package the build
+did not read as a target produces a record of its own in a second pass, for that entity and for no
+other name of that package: the set a second pass reads is the entities the references of the first
+pass name. It enumerates no package and follows nothing that package refers to, so every record it
+produces comes from a name the package exports.
+
+A record produced from a reference carries what a name and a type state: the identifier, the kind, the
+semantic type, the receiver, the parent, the exported property, the signature of the entity itself, and
+the shape the type states, which is the fields and the embedding it declares, the method specs an
+interface states, and the methods the package declares on that type. A method reachable only through an
+embedding is not part of that set, because a lookup rather than a declaration produced it. A field
+carries the reference to the entity its type denotes; a type parameter, a collection type and a
+predeclared name carry the value with no reference. A method record carries no attributes of its own,
+because the record has no field for a signature: the signature of a method read from a name is carried
+through the method attribute of the type that declares it, which is recorded only when a reference also
+named that type.
+
+When the load reports the syntax that declares the entity, the record also carries the declaration
+region, the reference to that declaration and the comment above it. Where the load reports no syntax,
+it states nothing there, and the provenance says so. It carries no use attributes, because no declaration
+body of that package was read, and its provenance states that its values were read from a name rather
+than from a package the build read as a target, so a consumer reads an absent value as a value that was
+never read rather than as a claim that the entity refers to nothing. A record read from source states
+the full set its definition requires.
+
+The identifier is built by the rules that build the identifier of any other record, from the entity
+itself, qualified by the module the load reported for the package that declares it, which carries no
+version when that load reported no module. Two references naming the same entity produce one record, and
+a record produced from a reference and the record the build produces for the same entity are one node.
 
 ## Out of scope for this change
 

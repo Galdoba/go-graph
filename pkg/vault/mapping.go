@@ -16,9 +16,15 @@ const Extension = ".md"
 
 // Folder reports the folder a recorded package path maps to under the vault root. The folder is
 // built from the path rather than from the printed form, because the printed form has no module
-// part to carry the path for a package that reports no module.
+// part to carry the path for a package that reports no module. The version a record states is a
+// part of the folder, so two records that differ only by version do not map to one folder and so
+// not to one file. A record that states no version maps to the folder the package path alone gives.
 func Folder(root string, pkg graph.PackageID) string {
-	return path.Join(root, pkg.PackagePath)
+	folder := path.Join(root, pkg.PackagePath)
+	if pkg.ModuleVersion == "" {
+		return folder
+	}
+	return path.Join(folder, pkg.ModuleVersion)
 }
 
 // FileName reports the file name a record maps to: the node part of the identifier, the receiver

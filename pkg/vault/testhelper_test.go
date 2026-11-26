@@ -39,6 +39,55 @@ func groundModule(t *testing.T, source string) string {
 	return dir
 }
 
+// loadForeignPair builds one package of the graph fixtures as a target and the records the second
+// pass produces for the names its references carry. The load is returned with both sets, so a test
+// can take away the syntax the load reported and see what a record that states no region writes.
+func loadForeignPair(t *testing.T, pattern string) (*packages.Package, []*graph.Node, []*graph.Node) {
+	t.Helper()
+
+	found, err := packages.Load(&packages.Config{Mode: graph.LoadMode, Dir: projectRoot()}, pattern)
+	if err != nil {
+		t.Fatalf("load %s: %v", pattern, err)
+	}
+	if len(found) != 1 {
+		t.Fatalf("load %s: expected one package, got %d", pattern, len(found))
+	}
+	if len(found[0].Errors) > 0 {
+		t.Fatalf("load %s: %v", pattern, found[0].Errors)
+	}
+
+	first, _, err := graph.Build(found[0])
+	if err != nil {
+		t.Fatalf("build %s: %v", pattern, err)
+	}
+	second, err := graph.SecondPass(found[0])
+	if err != nil {
+		t.Fatalf("second pass over %s: %v", pattern, err)
+	}
+	return found[0], first, second
+}
+
+// loadForeignPairWithoutSyntax reads the same pair with the syntax of the imported package taken away,
+// which is the load that produces a record stating no region. The check then answers such a record
+// against the entity the package declares, so the helper keeps the record and the package that declares
+// the entity apart.
+func loadForeignPairWithoutSyntax(t *testing.T, pattern string) (first, second []*graph.Node) {
+	t.Helper()
+
+	found, first, _ := loadForeignPair(t, pattern)
+	imported := found.Imports["github.com/Galdoba/go-graph/pkg/graph/testdata/fixtures/shape"]
+	if imported == nil || len(imported.Syntax) == 0 {
+		t.Fatalf("the load reported no syntax for the package a reference names, so there is nothing to take away")
+	}
+	imported.Syntax = nil
+
+	second, err := graph.SecondPass(found)
+	if err != nil {
+		t.Fatalf("second pass: %v", err)
+	}
+	return first, second
+}
+
 // loadDir builds the package that sits in the given directory.
 func loadDir(t *testing.T, dir string) []*graph.Node {
 	t.Helper()

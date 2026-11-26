@@ -64,15 +64,28 @@ func main() {
 			fmt.Fprintf(os.Stderr, "%v\n", err)
 			os.Exit(1)
 		}
-		fmt.Fprintf(os.Stderr, "%s: %d nodes\n", p.PkgPath, len(nodes))
-		for _, n := range nodes {
+		records, err := graph.SecondPass(p)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+			os.Exit(1)
+		}
+		combined := append(nodes, records...)
+		fmt.Fprintf(os.Stderr, "%s: %d nodes, %d records produced from a reference\n",
+			p.PkgPath, len(nodes), len(records))
+		for _, n := range combined {
 			fmt.Fprintf(os.Stderr, "  %s kind=%v semantic=%v receiver=%q parent=%v exported=%v generic=%v entry_point=%v file=%s line=%d column=%d range=%d-%d attributes=%d\n",
 				n.ID, n.Kind, n.SemanticType, n.Receiver, n.Parent, n.Properties.Exported, n.Properties.Generic, n.Properties.EntryPoint,
 				n.Pos.File, n.Pos.Line, n.Pos.Column, n.Range.StartLine, n.Range.EndLine, len(n.Attributes))
 		}
 
-		for _, n := range nodes {
+		second := resolved[p.PkgPath]
+		for _, n := range combined {
 			other := resolved[n.Package.PackagePath]
+			if other == nil && second != nil {
+				// A record produced from a name belongs to a package this run did not load as a
+				// target, so it is read back against the same package as the second load holds it.
+				other = second.Imports[n.Package.PackagePath]
+			}
 			if other == nil {
 				fmt.Fprintf(os.Stderr, "  round trip %s: package %s was not loaded again\n", n.ID, n.Package.PackagePath)
 				failed++
@@ -86,7 +99,7 @@ func main() {
 			fmt.Fprintf(os.Stderr, "  round trip %s: ok\n", n.ID)
 		}
 
-		notes, err := writeNotes(nodes)
+		notes, err := writeNotes(graph.PackageIDOf(p), combined)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%v\n", err)
 			os.Exit(1)
@@ -110,13 +123,14 @@ func main() {
 }
 
 // writeNotes runs the action over one package, states what it removed, and lists the files it
-// wrote so each can be read back and confirmed against the code.
-func writeNotes(nodes []*graph.Node) ([]string, error) {
+// wrote so each can be read back and confirmed against the code. The package the run built is
+// passed with the records, because the records of a run can map to folders of other packages.
+func writeNotes(pkg graph.PackageID, nodes []*graph.Node) ([]string, error) {
 	if len(nodes) == 0 {
 		return nil, nil
 	}
 
-	report, err := vault.Rebuild(vault.Root, nodes[0].Package, nodes)
+	report, err := vault.Rebuild(vault.Root, pkg, nodes)
 	if err != nil {
 		return nil, err
 	}

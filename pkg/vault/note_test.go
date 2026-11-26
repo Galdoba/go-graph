@@ -1,12 +1,15 @@
 package vault
 
 import (
+	"errors"
 	"os"
+	"path"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/Galdoba/go-graph/pkg/graph"
+	"github.com/Galdoba/go-graph/pkg/link"
 )
 
 // TestFrontmatterWritesTheFixedFieldOrder checks the order the fields are written in and that a
@@ -162,4 +165,145 @@ func readFile(t *testing.T, file string) []byte {
 		t.Fatalf("read %s: %v", file, err)
 	}
 	return data
+}
+
+// TestAForeignNoteHoldsTheValuesItsRecordStates renders a note for a record produced from a
+// reference. The load reported the syntax that declares the entity, so the note states the region and
+// the comment above the declaration, and its `## Related` section lists the connection that points at
+// it, which is the reference that named it, because a record produced from a reference carries nothing
+// it could point at.
+func TestAForeignNoteHoldsTheValuesItsRecordStates(t *testing.T) {
+	root := t.TempDir()
+	_, first, second := loadForeignPair(t, "./pkg/graph/testdata/fixtures/use")
+	shape := nodeByID(second, "github.com~Galdoba~go-graph~pkg~graph~testdata~fixtures~shape~shape.Shape")
+	if shape == nil {
+		t.Fatalf("the second pass produced no record for the shape a reference names: %v", nodeNames(second))
+	}
+
+	file, err := Render(root, shape, append(first, second...))
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	if file != path.Join(Folder(root, shape.Package), "Shape.md") {
+		t.Errorf("the note was written at %s, want the folder the referenced package path maps to", file)
+	}
+
+	record, err := Read(file)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if record.File != shape.Pos.File || record.Line != shape.Pos.Line || record.Column != shape.Pos.Column ||
+		record.StartLine != shape.Range.StartLine || record.EndLine != shape.Range.EndLine {
+		t.Errorf("the region read from the file does not match the region the record states: %+v", record)
+	}
+
+	content := string(readFile(t, file))
+	if !strings.Contains(content, "// Shape is the type a reference from another package names.") {
+		t.Errorf("the note does not state the comment above the declaration:\n%s", content)
+	}
+	if !strings.Contains(content, "type Shape struct {") {
+		t.Errorf("the note does not state the code snippet of the declaration:\n%s", content)
+	}
+
+	want := "- [[github.com/Galdoba/go-graph/pkg/graph/testdata/fixtures/use/Use.md|Use]]"
+	if !strings.Contains(content, want) {
+		t.Errorf("the Related section does not list the link that points at the record, want %s:\n%s", want, content)
+	}
+}
+
+// TestAForeignNoteWritesNoFieldItsRecordDoesNotState renders a record produced from a reference for an
+// entity whose package the load reported no syntax for. The record states no region, so the note writes
+// no region fields and no code snippet, and the rule that reads the uses a record carries is not
+// answered against it, because the absence of uses is a value that was never read rather than a claim
+// that the entity refers to nothing.
+func TestAForeignNoteWritesNoFieldItsRecordDoesNotState(t *testing.T) {
+	first, second := loadForeignPairWithoutSyntax(t, "./pkg/graph/testdata/fixtures/use")
+	hidden := nodeByID(second, "github.com~Galdoba~go-graph~pkg~graph~testdata~fixtures~shape~shape.hidden")
+	if hidden == nil {
+		t.Fatalf("the second pass produced no record for the entity the alias names: %v", nodeNames(second))
+	}
+	if hidden.Pos.File != "" || hidden.Decl != nil {
+		t.Fatalf("the record of %s states a region, want one that states none", hidden.ID)
+	}
+
+	root := t.TempDir()
+	file, err := Render(root, hidden, append(first, second...))
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+
+	content := string(readFile(t, file))
+	lines := strings.Split(content, "\n")
+	if lines[0] != "---" {
+		t.Fatalf("first line = %q, want a frontmatter fence", lines[0])
+	}
+	var written []string
+	for _, line := range lines[1:] {
+		if line == "---" {
+			break
+		}
+		if line == "" {
+			continue
+		}
+		field, _, ok := strings.Cut(line, ":")
+		if !ok {
+			t.Fatalf("frontmatter line without a value: %q", line)
+		}
+		written = append(written, field)
+	}
+
+	wantFields := []string{"generated", "module", "package_path", "package", "kind", "semantic_type"}
+	if !slices.Equal(written, wantFields) {
+		t.Errorf("fields written = %v, want only the parts the record states: %v", written, wantFields)
+	}
+	if strings.Contains(content, "```go") {
+		t.Errorf("the note wrote a code snippet for a record that states no region:\n%s", content)
+	}
+
+	yes, err := link.Exists(hidden, nodeByName(first, "Use"))
+	var undecided *link.UndecidedError
+	if err == nil || !errors.As(err, &undecided) || undecided.Rule != "node to a node a reference it carries names" {
+		t.Errorf("the reference rule answered %v for a record that states no uses, want it unable to answer", err)
+	}
+	if yes {
+		t.Errorf("the reference rule answered yes for a record that states no uses")
+	}
+
+	want := "- [[github.com/Galdoba/go-graph/pkg/graph/testdata/fixtures/use/Use.md|Use]]"
+	if !strings.Contains(content, want) {
+		t.Errorf("the Related section does not list the link that points at the record, want %s:\n%s", want, content)
+	}
+}
+
+// TestANoteForANodeThatIsAMemberOfNoPairStatesNoneDetected checks the section for a record that no pair
+// names, which is what a record whose fields name no node gives: nothing it carries points at a record and
+// no other record names it, so the section is present and states that nothing was detected.
+func TestANoteForANodeThatIsAMemberOfNoPairStatesNoneDetected(t *testing.T) {
+	root := t.TempDir()
+	nodes := loadGround(t, "./pkg/graph/testdata/fixtures/basic")
+
+	counter := nodeByName(nodes, "GlobalCounter")
+	if counter == nil {
+		t.Fatalf("the ground produced no node named GlobalCounter: %v", nodeNames(nodes))
+	}
+	for _, pair := range link.Pairs(nodes) {
+		if pair.Source == counter.ID || pair.Target == counter.ID {
+			t.Fatalf("the record %s is a member of the pair %v, want a record that is a member of no pair",
+				counter.ID, pair)
+		}
+	}
+
+	file, err := Render(root, counter, nodes)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+
+	content := string(readFile(t, file))
+	start := strings.Index(content, "## Related")
+	if start < 0 {
+		t.Fatalf("the file carries no Related section:\n%s", content)
+	}
+	if !strings.Contains(content[start:], "None detected") {
+		t.Errorf("the Related section does not state that nothing was detected:\n%s", content[start:])
+	}
 }

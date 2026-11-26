@@ -36,10 +36,32 @@ A method written with an alias as its receiver is answered through the node the 
 
 The rule added here reads the references the source carries, so it answers for a source of any kind, and
 a pair is answered no when the reference names an entity the model records as an attribute rather than a
-node. Because it reads no semantic value, it is never the rule named for an undecided pair, so the rule
-named for such a pair stays the interface rule. The name written as the receiver records no reference, so
+node. Because it reads no semantic value, it is never the rule named for an undecided pair for a record
+the build read as a target, so the rule named for such a pair stays the interface rule. A record produced
+from a reference is the case where it is named, because the value it reads is one that record cannot
+carry. The name written as the receiver records no reference, so
 a method answers nothing for the type it is declared on, and the pair `Base` to its method `Read` is
 answered by the first rule alone.
+
+## Records produced from a reference
+
+The domain grows through the records the second pass produces for the entities the references of the
+first pass name, and the rule set is unchanged. A pair whose members come from two packages is answered
+by the same rules as a pair whose members come from one package.
+
+The exported filter reaches only records produced from a reference, because a reference from the package
+the build read as a target can name only a name that package exports. A pair inside that package is
+answered whatever the exported value of its target is, so `main` to the entity of an imported package is
+answered while `main` is not exported.
+
+A pair is answered only when both members have a record of their own. A foreign method whose receiver
+type no reference named produces no parent pair, because the type is not a member of the pair.
+
+A rule cannot answer for a value a record produced from a reference does not carry, and it does not
+answer no for it. The rule that reads uses reports that it cannot answer for such a source, because no
+declaration body of that package was read and the absence of uses is not a claim that the entity refers
+to nothing. A rule that reads only what such a record can carry, such as the method specs an interface
+states, answers for it as it does for any other record.
 
 ## Combining rules and answering a set of pairs
 
@@ -63,4 +85,8 @@ The answered set is ordered by the source identifier and then by the target iden
 
 ## Coverage of the rules by the test ground
 
-Coverage is decided by which pairs the test ground produces for each rule. All four rules are covered by the test ground, and a rule with no pair in the ground is reported as not covered.
+Coverage is decided by which pairs the test ground produces for each rule. All four rules are covered by
+the test ground, and a rule with no pair in the ground is reported as not covered. The rule that reads
+references is covered by a pair whose members come from two packages, `main` to `strings.ToLower`, where
+the second member is a record the second pass produced for an entity of a package the build reads from
+type information only.

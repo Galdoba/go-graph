@@ -79,33 +79,46 @@ type builder struct {
 // range of its declaration spec. The range is kept per spec so that two variables inside
 // one group declaration keep different ranges.
 func (b *builder) indexDeclarations() {
-	for _, file := range b.pkg.Syntax {
+	b.decls, b.ranges = declarationIndex(b.pkg)
+}
+
+// declarationIndex records the declaration site of the entities a package declares. It is the
+// same index for a package the build read as a target and for a package the load reported the
+// syntax of, so a record states the site the syntax shows whatever the build did with it.
+func declarationIndex(p *packages.Package) (map[types.Object]ast.Decl, map[types.Object]LineRange) {
+	decls := make(map[types.Object]ast.Decl)
+	ranges := make(map[types.Object]LineRange)
+	if p == nil || p.Syntax == nil || p.TypesInfo == nil {
+		return decls, ranges
+	}
+	for _, file := range p.Syntax {
 		for _, decl := range file.Decls {
 			switch d := decl.(type) {
 			case *ast.FuncDecl:
-				b.recordDecl(b.pkg.TypesInfo.Defs[d.Name], decl, d)
+				recordSite(decls, ranges, p, p.TypesInfo.Defs[d.Name], decl, d)
 			case *ast.GenDecl:
 				for _, spec := range d.Specs {
 					switch s := spec.(type) {
 					case *ast.TypeSpec:
-						b.recordDecl(b.pkg.TypesInfo.Defs[s.Name], decl, s)
+						recordSite(decls, ranges, p, p.TypesInfo.Defs[s.Name], decl, s)
 					case *ast.ValueSpec:
 						for _, name := range s.Names {
-							b.recordDecl(b.pkg.TypesInfo.Defs[name], decl, s)
+							recordSite(decls, ranges, p, p.TypesInfo.Defs[name], decl, s)
 						}
 					}
 				}
 			}
 		}
 	}
+	return decls, ranges
 }
 
-func (b *builder) recordDecl(obj types.Object, decl ast.Decl, spec ast.Node) {
+func recordSite(decls map[types.Object]ast.Decl, ranges map[types.Object]LineRange, p *packages.Package, obj types.Object, decl ast.Decl, spec ast.Node) {
 	if obj == nil {
 		return
 	}
-	b.decls[obj] = decl
-	b.ranges[obj] = lineRange(b.pkg.Fset, spec)
+	decls[obj] = decl
+	ranges[obj] = lineRange(p.Fset, spec)
 }
 
 // enumerateScope records the objects the package scope holds, which are exactly the
@@ -360,6 +373,17 @@ func (b *builder) recordUses(node *Node, decl ast.Node) {
 				})
 				return true
 			}
+			// The reference names the entity the imported package declares, so it is recorded as a use
+			// whatever name the import wrote. The name the import wrote stays an alias attribute when it
+			// is not the name that package declares.
+			if sel := b.pkg.TypesInfo.Uses[x.Sel]; sel != nil && sel.Name() != "_" {
+				b.addAttribute(node, Attribute{
+					Kind:  AttrUse,
+					Name:  sel.Name(),
+					Value: types.TypeString(b.resolvedType(sel.Type()), b.qualifier),
+					Ref:   b.referentObj(sel),
+				})
+			}
 			if pn.Name() != pn.Imported().Name() {
 				b.addAttribute(node, Attribute{
 					Kind:  AttrAlias,
@@ -413,35 +437,20 @@ func (b *builder) add(obj types.Object) Candidate {
 	}
 	id := NewID(b.id, obj)
 	st := semanticTypeOf(obj, c.Kind, id.Receiver)
-	var props NodeProperties
-	if obj.Exported() {
-		props.Exported = true
-	}
-	if tn, ok := obj.(*types.TypeName); ok {
-		if named, ok := tn.Type().(*types.Named); ok && named.TypeParams() != nil && named.TypeParams().Len() > 0 {
-			props.Generic = true
-		}
-	}
-	if f, ok := obj.(*types.Func); ok {
-		if f.Signature().TypeParams() != nil && f.Signature().TypeParams().Len() > 0 {
-			props.Generic = true
-		}
-		if b.pkg.Name == "main" && (obj.Name() == "main" || obj.Name() == "init") {
-			props.EntryPoint = true
-		}
-	}
+	props := propertiesOf(b.id, obj)
 	b.nodes[id] = &Node{
 		ID:           id,
 		Kind:         c.Kind,
 		Name:         obj.Name(),
 		Package:      b.id,
-		Parent:       b.parent(obj),
+		Parent:       parentIn(b.id, obj),
 		Receiver:     id.Receiver,
 		Pos:          position(b.pkg.Fset, obj.Pos()),
 		Range:        b.ranges[obj],
 		Decl:         b.decls[obj],
 		SemanticType: st,
 		Properties:   props,
+		Provenance:   ProvenanceFromSource,
 	}
 	return c
 }
@@ -468,20 +477,22 @@ func (b *builder) reasonForInnerEntity(obj types.Object) string {
 	}
 }
 
-// parent reports the node that owns an object. A method is owned by the node of the named
-// type behind its receiver. A package-level declaration is owned by the package namespace,
-// which groups nodes rather than being a node, so its parent carries no name.
-func (b *builder) parent(obj types.Object) ID {
+// parentIn reports the node that owns an object in the graph that owns it. A method is owned by the
+// node of the named type behind its receiver. A package-level declaration is owned by the package
+// namespace, which groups nodes rather than being a node, so its parent carries no name. The same
+// rule is read for a record produced from a reference, because that record belongs to the graph of
+// the package that declares the entity.
+func parentIn(pkg PackageID, obj types.Object) ID {
 	if f, ok := obj.(*types.Func); ok {
 		recv := f.Signature().Recv()
 		if recv == nil {
-			return ID{Package: b.id}
+			return ID{Package: pkg}
 		}
 		if named, ok := baseNamed(recv.Type()); ok {
-			return ID{Package: b.id, Name: named.Obj().Name()}
+			return ID{Package: pkg, Name: named.Obj().Name()}
 		}
 	}
-	return ID{Package: b.id}
+	return ID{Package: pkg}
 }
 
 // nodeOf returns the recorded node an object produced, or nil when the entity is not a
@@ -504,8 +515,44 @@ func (b *builder) namesNode(obj types.Object) bool {
 		return b.nodeOf(obj) != nil
 	}
 	// A referent from another package belongs to that package graph, so its node-ness is read from
-	// the scope that declares it rather than from the nodes this build produced.
-	return obj.Pkg().Scope().Lookup(obj.Name()) == obj && Classify(obj.Pkg(), obj).Recorded
+	// the definition rather than from the nodes this build produced.
+	return definitionNamesNode(obj.Pkg(), obj)
+}
+
+// definitionNamesNode reports the node-ness of an entity by the definition of a node, which is what
+// decides it for a package the build did not read as a target. The scope of a package holds
+// package-level declarations only, so a method declared on a package-level named type has to be read
+// through the type its receiver names, and a method reached through an embedding is not one the type
+// declares.
+func definitionNamesNode(pkg *types.Package, obj types.Object) bool {
+	if pkg == nil || obj == nil || obj.Pkg() != pkg || !Classify(pkg, obj).Recorded {
+		return false
+	}
+	if f, ok := obj.(*types.Func); ok {
+		recv := f.Signature().Recv()
+		// A function with no receiver is a package-level declaration when the package scope holds it,
+		// which a method spec does not.
+		if recv == nil {
+			return pkg.Scope().Lookup(obj.Name()) == obj
+		}
+		named, ok := baseNamed(recv.Type())
+		if !ok {
+			return false
+		}
+		owner := named.Obj()
+		if owner.Pkg() != pkg || !Classify(pkg, owner).Recorded {
+			return false
+		}
+		// The method set of a named type holds the methods that type declares, so a method reached
+		// through an embedding is not one this type declares.
+		for i := 0; i < named.NumMethods(); i++ {
+			if named.Method(i) == obj {
+				return true
+			}
+		}
+		return false
+	}
+	return pkg.Scope().Lookup(obj.Name()) == obj
 }
 
 // referentObj builds the identifier of the node an attribute points at. An alias name names an
@@ -518,24 +565,11 @@ func (b *builder) referentObj(obj types.Object) ID {
 	if obj == nil || obj.Pkg() == nil {
 		return ID{}
 	}
-	if tn, ok := obj.(*types.TypeName); ok && tn.IsAlias() {
-		named, ok := types.Unalias(tn.Type()).(*types.Named)
-		if !ok {
-			return ID{}
-		}
-		obj = named.Obj()
-	}
-	if !b.namesNode(obj) {
+	referent := resolvedObject(obj)
+	if referent == nil || !b.namesNode(referent) {
 		return ID{}
 	}
-	pkg := PackageID{PackagePath: obj.Pkg().Path(), Name: obj.Pkg().Name()}
-	if imported := b.pkg.Imports[obj.Pkg().Path()]; imported != nil && imported.Module != nil {
-		pkg.ModulePath = imported.Module.Path
-		pkg.ModuleVersion = imported.Module.Version
-	} else if obj.Pkg() == b.pkg.Types {
-		pkg = b.id
-	}
-	return NewID(pkg, obj)
+	return NewID(referentPackage(b.pkg, referent.Pkg()), referent)
 }
 
 // referentExpr reports the node a type expression names. Only an identifier that denotes a

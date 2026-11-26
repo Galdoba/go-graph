@@ -76,10 +76,10 @@ func frontmatter(n *graph.Node) string {
 		"semantic_type": n.SemanticType.String(),
 		"properties":    propertyLine(n.Properties),
 		"file":          n.Pos.File,
-		"line":          strconv.Itoa(n.Pos.Line),
-		"column":        strconv.Itoa(n.Pos.Column),
-		"start_line":    strconv.Itoa(n.Range.StartLine),
-		"end_line":      strconv.Itoa(n.Range.EndLine),
+		"line":          regionField(n.Pos.Line),
+		"column":        regionField(n.Pos.Column),
+		"start_line":    regionField(n.Range.StartLine),
+		"end_line":      regionField(n.Range.EndLine),
 	}
 
 	var b strings.Builder
@@ -93,6 +93,15 @@ func frontmatter(n *graph.Node) string {
 	return b.String()
 }
 
+// regionField writes a part of the region. A record that states no region states no line, so a value
+// of zero is not a field the record carries and is not written as an empty value.
+func regionField(value int) string {
+	if value == 0 {
+		return ""
+	}
+	return strconv.Itoa(value)
+}
+
 // body states what the node is in a form that can be read without the build that produced the
 // file, because the file name states the semantic type only.
 func body(n *graph.Node, nodes []*graph.Node) string {
@@ -100,19 +109,24 @@ func body(n *graph.Node, nodes []*graph.Node) string {
 
 	lines = append(lines, "# "+n.Name, "")
 
-	// ## Code section
-	lines = append(lines, "## Code", "", "```go")
-	if doc := docComment(n); doc != "" {
-		for _, line := range strings.Split(strings.TrimSpace(doc), "\n") {
-			lines = append(lines, "// "+strings.TrimSpace(line))
+	// ## Code section. A record that states no region has no snippet to write, so the section
+	// states its heading and nothing else.
+	lines = append(lines, "## Code", "")
+	if n.Pos.File != "" {
+		if doc := docComment(n); doc != "" {
+			for _, line := range strings.Split(strings.TrimSpace(doc), "\n") {
+				lines = append(lines, "// "+strings.TrimSpace(line))
+			}
 		}
+		lines = append(lines, "```go")
+		for _, line := range strings.Split(codeSnippet(n), "\n") {
+			lines = append(lines, line)
+		}
+		lines = append(lines, "```")
 	}
-	for _, line := range strings.Split(codeSnippet(n), "\n") {
-		lines = append(lines, line)
-	}
-	lines = append(lines, "```", "## Related", "")
+	lines = append(lines, "## Related", "")
 
-	links := incomingLinks(n, nodes)
+	links := relatedLinks(n, nodes)
 	if len(links) == 0 {
 		lines = append(lines, "None detected")
 	} else {
@@ -162,8 +176,12 @@ func codeSnippet(n *graph.Node) string {
 	return strings.Join(lines, "\n")
 }
 
-// incomingLinks returns Obsidian wikilinks for all nodes that n has an outgoing link to.
-func incomingLinks(n *graph.Node, nodes []*graph.Node) []string {
+// relatedLinks returns the Obsidian wikilinks the `## Related` section lists. A record the build
+// produced lists the connections it points at. A record produced from a reference carries no uses,
+// so the connections it can be a member of are the ones that point at it, which is the reference
+// that named it. The path a link carries is the folder the package of the other record maps to,
+// which is not the folder of the note itself when that record was produced from a reference.
+func relatedLinks(n *graph.Node, nodes []*graph.Node) []string {
 	byID := make(map[graph.ID]*graph.Node, len(nodes))
 	for _, node := range nodes {
 		byID[node.ID] = node
@@ -171,18 +189,23 @@ func incomingLinks(n *graph.Node, nodes []*graph.Node) []string {
 
 	var links []string
 	for _, pair := range link.Pairs(nodes) {
-		if pair.Source == n.ID {
-			target := byID[pair.Target]
-			if target == nil {
-				continue
-			}
-			rel := path.Join(target.Package.PackagePath, FileName(target))
-			label := target.Name
-			if target.Receiver != "" {
-				label = target.Receiver + "." + target.Name
-			}
-			links = append(links, "[["+rel+"|"+label+"]]")
+		if pair.Source != n.ID && !(n.Provenance == graph.ProvenanceFromName && pair.Target == n.ID) {
+			continue
 		}
+		other := pair.Target
+		if other == n.ID {
+			other = pair.Source
+		}
+		target := byID[other]
+		if target == nil {
+			continue
+		}
+		rel := path.Join(Folder("", target.Package), FileName(target))
+		label := target.Name
+		if target.Receiver != "" {
+			label = target.Receiver + "." + target.Name
+		}
+		links = append(links, "[["+rel+"|"+label+"]]")
 	}
 	return links
 }

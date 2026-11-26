@@ -42,6 +42,19 @@ func groundNodes(t *testing.T) []*graph.Node {
 	return nodes
 }
 
+// groundWithForeignRecords builds the test ground and the records its references name in packages
+// the build reads from type information only, which is the collection a pair whose members come from
+// two packages is answered from.
+func groundWithForeignRecords(t *testing.T) []*graph.Node {
+	t.Helper()
+	nodes := groundNodes(t)
+	foreign, err := graph.SecondPass(groundPackage(t))
+	if err != nil {
+		t.Fatalf("read the records the references of the test ground name: %v", err)
+	}
+	return append(nodes, foreign...)
+}
+
 func nodeByName(nodes []*graph.Node, name string) *graph.Node {
 	for _, n := range nodes {
 		if n.Name == name {
